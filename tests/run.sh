@@ -512,6 +512,43 @@ if printf '%s' "$menu_wait" | grep -q '就做本地这步'; then
   fail "local step shown while waiting"
 fi
 
+# a hand-written current-round file is ready even when pack-state is still none
+HWREPO="$TMP/hand-repo"
+mkdir -p "$HWREPO"
+git init -q "$HWREPO"
+git -C "$HWREPO" config user.email "chatbar-test@example.com"
+git -C "$HWREPO" config user.name "ChatBar Test"
+printf 'a\n' > "$HWREPO/main.py"
+git -C "$HWREPO" add main.py
+git -C "$HWREPO" commit -q -m init
+HWHANDOFF="$TMP/hand 交接"
+"$CHATBAR" project add --name "手写" --repo "$HWREPO" --handoff "$HWHANDOFF" >/dev/null
+assert_eq "$(tr -d '\r\n' < "$HWHANDOFF/pack-state")" "none" "hand project starts unpacked"
+hw_out="$HWHANDOFF/①发出_拖给ChatGPT"
+printf 'wrong round\n' > "$hw_out/to_chatgpt_R002.md"
+hw_wrong="$("$CHATBAR" next 手写)"
+assert_eq "$hw_wrong" "现在：让 agent 跑 chatbar pack，你先不用做事" "other round file is not ready"
+rm -f "$hw_out/to_chatgpt_R002.md"
+printf 'hand written round\n' > "$hw_out/to_chatgpt_R001.md"
+assert_file "$hw_out/给GPT的话.txt"
+hw_next="$("$CHATBAR" next 手写)"
+assert_eq "$hw_next" "现在：① 点『复制给 g 的话』→ ② 在 g 里 Cmd+V → ③ 把 to_chatgpt_R001.md 拖进去 → ④ 发送" "hand-written pack is ready"
+hw_json="$("$CHATBAR" next --json 手写)"
+assert_contains "$hw_json" '"state":"ready"' "hand-written json ready"
+assert_eq "$(tr -d '\r\n' < "$HWHANDOFF/pack-state")" "none" "next does not rewrite pack-state"
+"$CHATBAR" project use 手写 >/dev/null
+hw_menu="$("$CHATBAR" swiftbar-menu)"
+assert_contains "$hw_menu" "to_chatgpt_R001.md" "hand-written menu names the file"
+assert_contains "$hw_menu" "就做本地这步" "hand-written pack shows the local step"
+rm -f "$hw_out/给GPT的话.txt" "$hw_out/opener.txt" "$hw_out/opener.md"
+hw_bare="$("$CHATBAR" next 手写)"
+assert_eq "$hw_bare" "现在：让 agent 跑 chatbar pack，你先不用做事" "pack file without opener is not ready"
+printf 'opener\n' > "$hw_out/给GPT的话.txt"
+printf 'got it\n' > "$TMP/hw-reply.md"
+"$CHATBAR" ingest --project 手写 "$TMP/hw-reply.md" >/dev/null
+hw_in="$("$CHATBAR" next 手写)"
+assert_eq "$hw_in" "已收到 R001，交给 agent 处理中，你不用做事" "ingested reply beats a hand-written pack"
+
 # safety: no chat UI automation
 if grep -RInE 'playwright|puppeteer|api\.openai\.com|browser-cookie|tell application "(Safari|Google Chrome|ChatGPT)"|System Events|keystroke' \
   "$ROOT/cli" "$ROOT/swiftbar" "$ROOT/scripts" >/tmp/safety-hits 2>/dev/null; then

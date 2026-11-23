@@ -46,7 +46,7 @@ The log role folder holds `轮次总表.md` and `events.jsonl` (`spec_version`, 
 
 ## Next step
 
-The drag file for round N is `outbox/to_chatgpt_R00N.md` (also written as `to_planner.md`). `chatbar next` prints one short Chinese sentence for the current action. `chatbar next --json` returns `text`, `state` (`need_pack`, `ready`, `waiting`, `inbox`, `no_project`), `round`, `file`, and `reply_file` so a native menu bar can show the same sentence. `chatbar handoff-now` copies the opener and selects that exact file in Finder. It does not click or type into any chat app.
+The drag file for round N is `outbox/to_chatgpt_R00N.md` (also written as `to_planner.md`). A hand-written file for the current round counts as ready when an opener is in the outbox (`给GPT的话.txt`, `opener.txt`, or `opener.md`) and that round has no ingested reply. `chatbar next` prints one short Chinese sentence for the current action. `chatbar next --json` returns `text`, `state` (`need_pack`, `ready`, `waiting`, `inbox`, `no_project`), `round`, `file`, and `reply_file` so a native menu bar can show the same sentence. `chatbar handoff-now` copies the opener and selects that exact file in Finder. It does not click or type into any chat app.
 
 ## Writes
 

@@ -72,7 +72,7 @@ cb_drag_pack_path() {
 
 # Sets CB_NEXT_STATE, CB_NEXT_TEXT, CB_NEXT_ROUND, CB_NEXT_FILE, CB_NEXT_REPLY.
 cb_next_fields() {
-  local pack_state inbox_state inbox_round round label pack_path
+  local pack_state inbox_state inbox_round round label pack_path outdir opener_ok reply_for_round
   pack_state="$(cb_state_get "$CB_HANDOFF" "pack-state" "none")"
   inbox_state="$(cb_state_get "$CB_HANDOFF" "inbox-state" "none")"
   inbox_round="$(cb_state_get "$CB_HANDOFF" "inbox-round" "0")"
@@ -90,14 +90,26 @@ cb_next_fields() {
     return 0
   fi
   label="$(cb_round_label "$round")"
-  pack_path="$(cb_dir "$CB_HANDOFF" outbox)/$(cb_pack_filename "$round")"
+  outdir="$(cb_dir "$CB_HANDOFF" outbox)"
+  pack_path="${outdir}/$(cb_pack_filename "$round")"
   CB_NEXT_ROUND="$round"
   CB_NEXT_FILE="$(cb_pack_filename "$round")"
   CB_NEXT_REPLY="$(cb_reply_download_name "$CB_NAME" "$round")"
-  if [[ "$pack_state" == "ready" && -f "$pack_path" ]]; then
-    CB_NEXT_STATE="ready"
-    CB_NEXT_TEXT="现在：① 点『复制给 g 的话』→ ② 在 g 里 Cmd+V → ③ 把 ${CB_NEXT_FILE} 拖进去 → ④ 发送"
-    return 0
+  opener_ok=0
+  if [[ -f "${outdir}/给GPT的话.txt" || -f "${outdir}/opener.txt" || -f "${outdir}/opener.md" ]]; then
+    opener_ok=1
+  fi
+  reply_for_round=0
+  if [[ "$inbox_round" == "$round" && "$inbox_round" != "0" ]]; then
+    reply_for_round=1
+  fi
+  # pack-state=ready, or a hand-written file for this round that has not been answered.
+  if [[ -f "$pack_path" && "$reply_for_round" == 0 ]]; then
+    if [[ "$pack_state" == "ready" || ( "$pack_state" == "none" && "$opener_ok" == 1 ) ]]; then
+      CB_NEXT_STATE="ready"
+      CB_NEXT_TEXT="现在：① 点『复制给 g 的话』→ ② 在 g 里 Cmd+V → ③ 把 ${CB_NEXT_FILE} 拖进去 → ④ 发送"
+      return 0
+    fi
   fi
   if [[ "$pack_state" == "presented" ]]; then
     CB_NEXT_STATE="waiting"
