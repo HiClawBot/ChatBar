@@ -2,6 +2,31 @@
 # Closed rounds live in archive/YYYY-MM/Rnnn_YYYY-MM-DD_HHMM_slug/.
 # MIT License.
 
+# Raw planner zips land in <archive>/YYYY-MM/Rnnn_raw so a later sweep
+# cannot unpack the same archive again.
+cb_archive_dest() {
+  local handoff="$1"
+  local round="$2"
+  local label
+  label="$(cb_round_label "$round")"
+  printf '%s/%s/%s_raw' "$(cb_dir "$handoff" archive)" "$(cb_today)" "$label"
+}
+
+cb_move_to_archive() {
+  local src="$1"
+  local dest_dir="$2"
+  [[ -e "$src" ]] || return 0
+  mkdir -p "$dest_dir"
+  local base dest
+  base="$(basename "$src")"
+  dest="${dest_dir}/${base}"
+  if [[ -e "$dest" ]]; then
+    dest="${dest_dir}/$(date +%H%M%S)-${base}"
+  fi
+  mv -f "$src" "$dest"
+  printf '%s' "$dest"
+}
+
 cb_slug() {
   local s="$1"
   local out="" i c len

@@ -53,6 +53,15 @@ cb_bytes() {
   wc -c < "$1" | tr -d '[:space:]'
 }
 
+cb_sha256() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print $1}'
+  else
+    shasum -a 256 "$file" | awk '{print $1}'
+  fi
+}
+
 cb_approx_tokens() {
   local bytes="${1:-0}"
   if [[ -z "$bytes" || "$bytes" -le 0 ]]; then

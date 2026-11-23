@@ -1,6 +1,59 @@
 # Ingest planner replies: unzip, rename, attribute, write inbox/NEW.json.
 # MIT License.
 
+cb_ledger_file() {
+  printf '%s/ingested.sha256' "$(cb_dir "$1" log)"
+}
+
+cb_ledger_has() {
+  local handoff="$1"
+  local sum="$2"
+  local file
+  file="$(cb_ledger_file "$handoff")"
+  [[ -f "$file" ]] || return 1
+  grep -q -E "^${sum}([[:space:]]|$)" "$file"
+}
+
+cb_ledger_add() {
+  local handoff="$1"
+  local sum="$2"
+  local name="$3"
+  local file dir
+  file="$(cb_ledger_file "$handoff")"
+  dir="$(dirname "$file")"
+  mkdir -p "$dir"
+  if cb_ledger_has "$handoff" "$sum"; then
+    return 0
+  fi
+  printf '%s  %s\n' "$sum" "$name" >> "$file"
+}
+
+cb_lock_held_by_other() {
+  local dir="$1"
+  local lock="${dir}/.lock"
+  local pid
+  [[ -d "$lock" ]] || return 1
+  pid="$(cat "${lock}/pid" 2>/dev/null || true)"
+  if [[ -z "$pid" || "$pid" == "$$" ]]; then
+    return 1
+  fi
+  if kill -0 "$pid" 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+cb_ingest_on_exit() {
+  local rc=$?
+  if [[ -n "${CB_INGEST_LOCKDIR:-}" ]]; then
+    cb_unlock "$CB_INGEST_LOCKDIR" || true
+    CB_INGEST_LOCKDIR=""
+    if [[ "$rc" -ne 0 ]]; then
+      printf 'chatbar: ingest failed (exit %s). Lock released.\n' "$rc" >&2
+    fi
+  fi
+}
+
 cb_is_zip() {
   local f="$1" sig
   [[ -f "$f" ]] || return 1
@@ -185,14 +238,12 @@ cb_ingest_zip() {
     cb_place_file "$handoff" "$round" "$stamp" "$f" "$relpath" "1" "$(basename "$zip")"
   done < <(find "$tmp" -type f -print)
   rm -rf "$tmp"
-  local canon_src canon_inbox
+  local canon_src canon_inbox raw_dir
   canon_src="$(cb_canon_file "$zip")"
   canon_inbox="$(cb_abs_dir "$(cb_dir "$handoff" inbox)")"
   case "$canon_src" in
     "$canon_inbox"/*)
-      local raw_dir
-      raw_dir="$(cb_archive_dest "$handoff" "inbox")"
-      mkdir -p "$raw_dir"
+      raw_dir="$(cb_archive_dest "$handoff" "$round")"
       cb_move_to_archive "$zip" "$raw_dir" >/dev/null
       ;;
   esac
@@ -206,7 +257,9 @@ cb_ingest_project() {
   idx="$(cb_project_find "$project")" || cb_die "unknown project: ${project}"
   cb_load_project_fields "$idx"
   cb_ensure_layout "$CB_HANDOFF"
-  cb_lock "$CB_HANDOFF"
+  cb_lock "$CB_HANDOFF" || cb_die "无法锁定交接目录。Could not lock ${CB_HANDOFF}"
+  CB_INGEST_LOCKDIR="$CB_HANDOFF"
+  trap cb_ingest_on_exit EXIT
 
   local inbox_state pack_state pack_round round stamp
   inbox_state="$(cb_state_get "$CB_HANDOFF" "inbox-state" "none")"
@@ -225,9 +278,28 @@ cb_ingest_project() {
   fi
 
   stamp="$(cb_now_stamp)"
-  local f
+  local f sum
+  local -a fresh_files fresh_sums
+  fresh_files=()
+  fresh_sums=()
   for f in "$@"; do
     [[ -e "$f" ]] || cb_die "not found: ${f}"
+    sum="$(cb_sha256 "$f")"
+    if cb_ledger_has "$CB_HANDOFF" "$sum"; then
+      cb_note "skip already ingested: ${f}"
+      continue
+    fi
+    fresh_files+=("$f")
+    fresh_sums+=("$sum")
+  done
+  if [[ "${#fresh_files[@]}" -eq 0 ]]; then
+    cb_unlock "$CB_HANDOFF"
+    CB_INGEST_LOCKDIR=""
+    trap - EXIT
+    cb_note "nothing new to ingest"
+    return 0
+  fi
+  for f in "${fresh_files[@]}"; do
     if cb_is_zip "$f"; then
       cb_ingest_zip "$CB_HANDOFF" "$round" "$stamp" "$f"
     else
@@ -261,11 +333,17 @@ cb_ingest_project() {
   fi
   files_json="${files_json}]"
   cb_log_event "$CB_HANDOFF" "$CB_NAME" "$round" "from_planner" "$files_json" "$bytes"
+  local i
+  for i in "${!fresh_sums[@]}"; do
+    cb_ledger_add "$CB_HANDOFF" "${fresh_sums[$i]}" "$(basename "${fresh_files[$i]}")"
+  done
   local closed=""
   if [[ -f "$(cb_dir "$CB_HANDOFF" outbox)/to_planner.md" ]]; then
     closed="$(cb_close_round_unlocked "" || true)"
   fi
   cb_unlock "$CB_HANDOFF"
+  CB_INGEST_LOCKDIR=""
+  trap - EXIT
   if [[ -n "$closed" ]]; then
     cb_publish_opener >/dev/null || true
     cb_note "closed round -> ${closed}"
@@ -401,6 +479,10 @@ cb_cmd_sweep() {
   pending_files=()
   for i in "${!CB_P_NAME[@]}"; do
     cb_load_project_fields "$i"
+    if cb_lock_held_by_other "$CB_HANDOFF"; then
+      cb_note "skip sweep while locked: ${CB_NAME}"
+      continue
+    fi
     cb_ensure_layout "$CB_HANDOFF"
     inbox="$(cb_dir "$CB_HANDOFF" inbox)"
     [[ -d "$inbox" ]] || continue
@@ -413,6 +495,9 @@ cb_cmd_sweep() {
         *.crdownload|*.download|*.part) continue ;;
       esac
       if cb_is_normalized_name "$base"; then
+        continue
+      fi
+      if cb_ledger_has "$CB_HANDOFF" "$(cb_sha256 "$f")"; then
         continue
       fi
       if cb_sweep_settle_skip "$f"; then

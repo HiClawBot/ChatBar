@@ -28,6 +28,7 @@ cb_plugin_dir() {
   cd -P "$(dirname "$source")" && pwd
 }
 
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 PLUGIN_DIR="$(cb_plugin_dir)"
 if [[ -x "${PLUGIN_DIR}/../cli/chatbar" ]]; then
   CHATBAR="$(cd "${PLUGIN_DIR}/../cli" && pwd)/chatbar"
@@ -45,3 +46,4 @@ if [[ "${LAUNCHED_FROM_DROP_ACTION:-}" == "TRUE" || -n "${DROPPED_FILES:-}" || -
 fi
 "$CHATBAR" sweep || true
 "$CHATBAR" swiftbar-menu
+fi

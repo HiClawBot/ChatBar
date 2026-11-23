@@ -149,4 +149,6 @@ cb_main() {
   esac
 }
 
-cb_main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  cb_main "$@"
+fi

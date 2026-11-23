@@ -115,6 +115,7 @@ cb_seed_swiftbar_defaults() {
   defaults write com.ameba.SwiftBar IncludeBetaUpdates -bool false
 }
 
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 ROOT="$(cb_install_root)"
 PREFIX="${PREFIX:-${HOME}/.local}"
 SKIP_SWIFTBAR=0
@@ -189,4 +190,5 @@ esac
 cb_say ready
 if [[ -n "$path_extra" ]]; then
   printf '%s' "$path_extra"
+fi
 fi

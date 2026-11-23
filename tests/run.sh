@@ -36,8 +36,28 @@ assert_dir() {
   [[ -d "$1" ]] || fail "missing dir $1"
 }
 
-# --- syntax ---
+# --- syntax and defined functions ---
 bash -n "$CHATBAR"
+bash -n "$ROOT/scripts/install.sh"
+(
+  set -euo pipefail
+  # shellcheck disable=SC1090
+  source "$CHATBAR"
+  # shellcheck disable=SC1090
+  source "$ROOT/scripts/install.sh"
+  # shellcheck disable=SC1090
+  source "$ROOT/swiftbar/chatbar.1m.sh"
+  missing=0
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    kind="$(type -t "$name" || true)"
+    if [[ "$kind" != "function" ]]; then
+      echo "undefined function: $name" >&2
+      missing=1
+    fi
+  done < <(grep -h -oE 'cb_[A-Za-z0-9_]+' "$ROOT"/cli/chatbar "$ROOT"/cli/lib/*.sh "$ROOT"/swiftbar/*.sh "$ROOT"/scripts/install.sh | sort -u)
+  [[ "$missing" -eq 0 ]]
+) || fail "undefined cb_* function"
 for f in "$ROOT"/cli/lib/*.sh "$ROOT"/swiftbar/*.sh "$ROOT"/scripts/*.sh; do
   [[ -f "$f" ]] || continue
   bash -n "$f" || fail "syntax $f"
@@ -225,6 +245,7 @@ if "$CHATBAR" ingest --project "项目乙" "$TMP/evil.zip" >/dev/null 2>"$TMP/ev
 fi
 [[ -f "$TMP/escaped.txt" ]] && fail "zip slip wrote outside"
 assert_contains "$(cat "$TMP/evil.err")" "Rejected" "zip slip message"
+[[ ! -d "$HANDOFF2/.lock" ]] || fail "zip slip left a lock"
 
 "$CHATBAR" pack --project "项目乙" >/dev/null
 "$CHATBAR" ingest --project "项目乙" "$TMP/out.zip" >/dev/null
@@ -373,6 +394,33 @@ fi
 # project switch
 "$CHATBAR" project use "项目乙" >/dev/null
 assert_eq "$(tr -d '\n' < "$CHATBAR_HOME/current")" "项目乙" "current switched"
+
+# zip ingest end to end: unpack, write NEW.json, move the raw zip, do not unpack twice
+ZREPO="$TMP/zip-repo"
+mkdir -p "$ZREPO"
+ZHANDOFF="$TMP/zip 交接"
+"$CHATBAR" project add --name "压缩包" --repo "$ZREPO" --handoff "$ZHANDOFF" >/dev/null
+zdir="$TMP/zsrc"
+mkdir -p "$zdir"
+printf 'zip-body\n' > "$zdir/inside.md"
+(cd "$zdir" && zip -q "$TMP/agents-bar_round1_reply.zip" inside.md)
+zinbox="$(cd -P "$ZHANDOFF" && pwd)/②收回_ChatGPT回复拖到这里"
+cp "$TMP/agents-bar_round1_reply.zip" "$zinbox/agents-bar_round1_reply.zip"
+"$CHATBAR" ingest --project "压缩包" "$zinbox/agents-bar_round1_reply.zip"
+assert_file "$zinbox/NEW.json"
+assert_contains "$(cat "$zinbox/NEW.json")" '"status": "new"' "zip ingest wrote NEW.json"
+[[ ! -e "$zinbox/agents-bar_round1_reply.zip" ]] || fail "raw zip still in inbox"
+raw_zip="$(find "$ZHANDOFF/已归档" -type f -name 'agents-bar_round1_reply.zip' | head -n 1)"
+[[ -n "$raw_zip" ]] || fail "raw zip was not archived"
+assert_contains "$raw_zip" "_raw/" "raw zip is under RNNN_raw"
+[[ ! -d "$ZHANDOFF/.lock" ]] || fail "successful ingest left a lock"
+copies="$(find "$zinbox" -type f -name 'r*-inside.md' | wc -l | tr -d ' ')"
+assert_eq "$copies" "1" "one unpacked file"
+cp "$TMP/agents-bar_round1_reply.zip" "$zinbox/agents-bar_round1_reply.zip"
+CHATBAR_SWEEP_SETTLE=0 "$CHATBAR" sweep >/dev/null
+copies="$(find "$zinbox" -type f -name 'r*-inside.md' | wc -l | tr -d ' ')"
+assert_eq "$copies" "1" "sweep did not unpack the same zip again"
+[[ -e "$zinbox/agents-bar_round1_reply.zip" ]] || fail "duplicate zip should stay put when skipped"
 
 # safety: no chat UI automation
 if grep -RInE 'playwright|puppeteer|api\.openai\.com|browser-cookie|tell application "(Safari|Google Chrome|ChatGPT)"|System Events|keystroke' \

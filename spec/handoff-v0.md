@@ -30,6 +30,8 @@ Agent-agnostic layout. Display folder names are local config; roles are fixed.
 
 `type` is `code_patch` when the reply contains a unified diff (```` ```diff ````, a `.patch` / `.diff` file) or full files with a path header (`File: path`). Those are copied under the inbox role folder at `patches/` (`*.patch` and `patches/files/...`). Each patch object includes `"type": "code_patch"`.
 
+After a zip unpacks, the original zip moves to `<archive>/YYYY-MM/Rnnn_raw/` so a later sweep cannot unpack it again. `<log>/ingested.sha256` records the sha256 of each ingested file. Sweep skips those hashes, and it skips a project while another process holds `<handoff>/.lock`.
+
 ## Archive
 
 Outbox and inbox keep only the current round. A finished round moves to:
