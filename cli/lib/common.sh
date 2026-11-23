@@ -69,6 +69,10 @@ cb_today() {
   date +"%Y-%m-%d"
 }
 
+cb_month() {
+  date +"%Y-%m"
+}
+
 cb_mtime() {
   local target="$1"
   if stat -c %Y "$target" >/dev/null 2>&1; then
@@ -80,6 +84,15 @@ cb_mtime() {
 
 cb_bytes() {
   wc -c < "$1" | tr -d '[:space:]'
+}
+
+cb_sha256() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print $1}'
+  else
+    shasum -a 256 "$file" | awk '{print $1}'
+  fi
 }
 
 cb_approx_tokens() {

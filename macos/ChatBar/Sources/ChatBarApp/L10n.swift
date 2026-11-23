@@ -99,6 +99,10 @@ enum L10n {
         "settings.tipMinutes": "每个省掉的动作按几分钟算",
         "settings.tipCost": "每一轮少花的额度",
         "settings.save": "存储",
-        "next.button": "复制开场白并选中文件"
+        "next.button": "复制开场白并选中文件",
+        "menu.more": "更多",
+        "menu.add": "添加项目…",
+        "add.choose": "添加",
+        "add.message": "选代码文件夹。项目名用文件夹的名字。"
     ]
 }

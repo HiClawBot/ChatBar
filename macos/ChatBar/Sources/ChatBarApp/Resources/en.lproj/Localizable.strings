@@ -42,3 +42,7 @@
 "settings.tipCost" = "Quota counted per round";
 "settings.save" = "Save";
 "next.button" = "Copy the opener and select the file";
+"menu.more" = "More";
+"menu.add" = "Add Project…";
+"add.choose" = "Add";
+"add.message" = "Choose the code folder. The project name is the folder name.";

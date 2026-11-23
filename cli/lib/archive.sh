@@ -2,6 +2,31 @@
 # Closed rounds live in archive/YYYY-MM/Rnnn_YYYY-MM-DD_HHMM_slug/.
 # MIT License.
 
+# Raw planner zips land in <archive>/YYYY-MM/Rnnn_raw so a later sweep
+# cannot unpack the same archive again.
+cb_archive_dest() {
+  local handoff="$1"
+  local round="$2"
+  local label
+  label="$(cb_round_label "$round")"
+  printf '%s/%s/%s_raw' "$(cb_dir "$handoff" archive)" "$(cb_month)" "$label"
+}
+
+cb_move_to_archive() {
+  local src="$1"
+  local dest_dir="$2"
+  [[ -e "$src" ]] || return 0
+  mkdir -p "$dest_dir"
+  local base dest
+  base="$(basename "$src")"
+  dest="${dest_dir}/${base}"
+  if [[ -e "$dest" ]]; then
+    dest="${dest_dir}/$(date +%H%M%S)-${base}"
+  fi
+  mv -f "$src" "$dest"
+  printf '%s' "$dest"
+}
+
 cb_slug() {
   local s="$1"
   local out="" i c len
@@ -158,6 +183,58 @@ cb_move_children() {
     mv -f "$f" "${dest}/${base}"
   done
   shopt -u nullglob
+}
+
+# Move a still-open inbox aside so a later round does not share NEW.json.
+# Files are moved, never deleted. Caller holds the handoff lock.
+cb_archive_previous_inbox_unlocked() {
+  local prev_round="$1"
+  shift
+  local inbox dest label stamp month
+  inbox="$(cb_dir "$CB_HANDOFF" inbox)"
+  label="$(printf 'R%03d' "$prev_round")"
+  stamp="$(date '+%Y-%m-%d_%H%M')"
+  month="$(cb_month)"
+  dest="$(cb_dir "$CB_HANDOFF" archive)/${month}/${label}_${stamp}_previous"
+  local n=2
+  while [[ -e "$dest" ]]; do
+    dest="$(cb_dir "$CB_HANDOFF" archive)/${month}/${label}_${stamp}_previous-${n}"
+    n=$((n + 1))
+  done
+  mkdir -p "${dest}/inbox"
+  local f base canon keep_it item
+  shopt -s nullglob
+  for f in "$inbox"/* "$inbox"/.[!.]*; do
+    [[ -e "$f" ]] || continue
+    base="$(basename "$f")"
+    case "$base" in
+      .|..|.tmp.*|.lock) continue ;;
+    esac
+    keep_it=0
+    if [[ "$#" -gt 0 ]]; then
+      canon="$(cb_canon_file "$f")"
+      for item in "$@"; do
+        if [[ "$(cb_canon_file "$item")" == "$canon" ]]; then
+          keep_it=1
+          break
+        fi
+      done
+    fi
+    if [[ "$keep_it" == 1 ]]; then
+      continue
+    fi
+    local target="${dest}/inbox/${base}"
+    if [[ -e "$target" ]]; then
+      target="${dest}/inbox/$(date +%H%M%S)-${base}"
+    fi
+    mv -f "$f" "$target"
+  done
+  shopt -u nullglob
+  cb_state_set "$CB_HANDOFF" "inbox-state" "none"
+  cb_state_set "$CB_HANDOFF" "inbox-round" "0"
+  cb_state_set "$CB_HANDOFF" "inbox-source" ""
+  cb_state_set "$CB_HANDOFF" "inbox-at" ""
+  printf '%s\n' "$dest"
 }
 
 # Caller holds the handoff lock. Prints the archive directory on success.

@@ -96,15 +96,15 @@ chatbar project add --name "项目甲" --repo ~/code/foo --with-templates
 本地助手 Codex / Grok
         |  chatbar pack（自动）
         v
- outbox/to_planner.md  --① 你拖进规划对话（默认 ChatGPT）-->  规划对话
+ outbox/to_chatgpt_R00N.md  --① 你拖进规划对话（默认 ChatGPT）-->  规划对话
         ^                                                    |
         | 读 inbox/NEW.json                                  | ② 你把回复拖到菜单栏图标或 inbox
         |                                                    v
         +-------- chatbar ingest（自动解压、改名、识别补丁） --+
 ```
 
-1. 助手做完一轮后运行 `chatbar pack`。菜单点项目名：Finder 并排打开发出夹（左边，包已选中）和收回夹（右边），并把开场白复制到剪贴板。
-2. 你把包拖进 ChatGPT，粘贴开场白，自己点发送。
+1. 助手做完一轮后运行 `chatbar pack`。菜单栏第一行只写这一步。包是 `to_chatgpt_R00N.md`。点「就做本地这步」：开场白进剪贴板，Finder 选中这个文件。你粘贴、拖进去、自己点发送。
+2. 你把包拖进 ChatGPT，粘贴开场白，自己点发送。`chatbar next` 会改成「等 g 回复，回完点下载 {项目}_roundN_reply.zip」。
 3. 你把 ChatGPT 的回复（`.md` / `.txt` / `.zip` / `.pdf` / 图片，名字随意）拖到菜单栏图标，或拖进该项目的收回夹。
 4. ChatBar 解压、按轮次改名、写入 `NEW.json`。若回复里有代码，见下一节。
 
@@ -149,14 +149,14 @@ The planner chat should not commit. It returns a unified diff against the main c
 
 ## 命令 / Commands
 
-`pack`、`open`、`reveal`、`copy-opener`、`ingest`、`apply`、`archive`、`status`、`project add|list|use`。`chatbar help` 列出全部。
+`pack`、`next`、`handoff-now`、`open`、`reveal`、`copy-opener`、`ingest`、`apply`、`archive`、`status`、`project add|list|use`。`chatbar next --json` 给原生菜单栏同一句中文。`chatbar help` 列出全部。
 
 ## 手动验收 / Manual check
 
 真实的 SwiftBar 拖放要在 Mac 上试。清单：
 
 1. `./scripts/install.sh` 之后菜单出现 ChatBar。
-2. 点项目名，两个 Finder 窗口左右并排，左边选中 `to_planner.md`，剪贴板里是这一轮的开场白。
+2. 菜单栏第一行是当前这一步。点「就做本地这步」后，Finder 选中 `to_chatgpt_R00N.md`，剪贴板里是这一轮的开场白。聊天软件要自己粘贴、自己发送。
 3. 点「复制给 GPT 的话」，只复制、不打开聊天软件。
 4. 把一个 zip 或 md 拖到图标上，收回夹或归档里出现改名后的文件；若是 diff，`NEW.json` 的 type 为 `code_patch`。
 5. `chatbar apply` 后当前分支是 `chatbar/R00N`，`main` 的提交没有变。

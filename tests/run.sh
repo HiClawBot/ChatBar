@@ -36,8 +36,28 @@ assert_dir() {
   [[ -d "$1" ]] || fail "missing dir $1"
 }
 
-# --- syntax ---
+# --- syntax and defined functions ---
 bash -n "$CHATBAR"
+bash -n "$ROOT/scripts/install.sh"
+(
+  set -euo pipefail
+  # shellcheck disable=SC1090
+  source "$CHATBAR"
+  # shellcheck disable=SC1090
+  source "$ROOT/scripts/install.sh"
+  # shellcheck disable=SC1090
+  source "$ROOT/swiftbar/chatbar.1m.sh"
+  missing=0
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    kind="$(type -t "$name" || true)"
+    if [[ "$kind" != "function" ]]; then
+      echo "undefined function: $name" >&2
+      missing=1
+    fi
+  done < <(grep -h -oE 'cb_[A-Za-z0-9_]+' "$ROOT"/cli/chatbar "$ROOT"/cli/lib/*.sh "$ROOT"/swiftbar/*.sh "$ROOT"/scripts/install.sh | sort -u)
+  [[ "$missing" -eq 0 ]]
+) || fail "undefined cb_* function"
 for f in "$ROOT"/cli/lib/*.sh "$ROOT"/swiftbar/*.sh "$ROOT"/scripts/*.sh; do
   [[ -f "$f" ]] || continue
   bash -n "$f" || fail "syntax $f"
@@ -139,6 +159,7 @@ mkdir -p "$WS"
 "$CHATBAR" pack --topic >/dev/null 2>"$TMP/pack.err" || true
 pack_out="$("$CHATBAR" pack)"
 assert_file "$HANDOFF/①发出_拖给规划聊天/to_planner.md"
+assert_file "$HANDOFF/①发出_拖给规划聊天/to_chatgpt_R001.md"
 pack_body="$(cat "$HANDOFF/①发出_拖给规划聊天/to_planner.md")"
 assert_contains "$pack_body" "round 1" "opener round"
 assert_contains "$pack_body" "planner" "opener role"
@@ -169,7 +190,7 @@ assert_contains "$open_out" "opener:" "open copies opener"
 assert_contains "$open_out" "项目甲_round1_reply.md" "open opener asks for the reply file"
 assert_contains "$open_out" "reveal:" "open reveals"
 assert_contains "$open_out" "layout:outbox-left,inbox-right" "side by side"
-assert_contains "$open_out" "①发出_拖给规划聊天/to_planner.md" "left is the pack"
+assert_contains "$open_out" "①发出_拖给规划聊天/to_chatgpt_R001.md" "left is the round file"
 assert_contains "$open_out" "②收回_规划聊天回复拖到这里" "right is inbox"
 status="$("$CHATBAR" status)"
 assert_contains "$status" "pack_state=presented" "presented after open"
@@ -225,6 +246,7 @@ if "$CHATBAR" ingest --project "项目乙" "$TMP/evil.zip" >/dev/null 2>"$TMP/ev
 fi
 [[ -f "$TMP/escaped.txt" ]] && fail "zip slip wrote outside"
 assert_contains "$(cat "$TMP/evil.err")" "Rejected" "zip slip message"
+[[ ! -d "$HANDOFF2/.lock" ]] || fail "zip slip left a lock"
 
 "$CHATBAR" pack --project "项目乙" >/dev/null
 "$CHATBAR" ingest --project "项目乙" "$TMP/out.zip" >/dev/null
@@ -376,6 +398,159 @@ assert_eq "$(tr -d '\n' < "$CHATBAR_HOME/current")" "项目乙" "current switche
 
 # shellcheck source=/dev/null
 source "$ROOT/tests/native.sh"
+
+# zip ingest end to end: unpack, write NEW.json, move the raw zip, do not unpack twice
+ZREPO="$TMP/zip-repo"
+mkdir -p "$ZREPO"
+ZHANDOFF="$TMP/zip 交接"
+"$CHATBAR" project add --name "压缩包" --repo "$ZREPO" --handoff "$ZHANDOFF" >/dev/null
+zdir="$TMP/zsrc"
+mkdir -p "$zdir"
+printf 'zip-body\n' > "$zdir/inside.md"
+(cd "$zdir" && zip -q "$TMP/agents-bar_round1_reply.zip" inside.md)
+zinbox="$(cd -P "$ZHANDOFF" && pwd)/②收回_ChatGPT回复拖到这里"
+cp "$TMP/agents-bar_round1_reply.zip" "$zinbox/agents-bar_round1_reply.zip"
+"$CHATBAR" ingest --project "压缩包" "$zinbox/agents-bar_round1_reply.zip"
+assert_file "$zinbox/NEW.json"
+assert_contains "$(cat "$zinbox/NEW.json")" '"status": "new"' "zip ingest wrote NEW.json"
+[[ ! -e "$zinbox/agents-bar_round1_reply.zip" ]] || fail "raw zip still in inbox"
+raw_zip="$(find "$ZHANDOFF/已归档" -type f -name 'agents-bar_round1_reply.zip' | head -n 1)"
+[[ -n "$raw_zip" ]] || fail "raw zip was not archived"
+assert_contains "$raw_zip" "_raw/" "raw zip is under RNNN_raw"
+case "$raw_zip" in
+  */已归档/[0-9][0-9][0-9][0-9]-[0-9][0-9]/R001_raw/*) ;;
+  *) fail "raw zip is not in a monthly archive folder: ${raw_zip}" ;;
+esac
+case "$raw_zip" in
+  */[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/*) fail "raw zip used a day folder: ${raw_zip}" ;;
+esac
+[[ ! -d "$ZHANDOFF/.lock" ]] || fail "successful ingest left a lock"
+copies="$(find "$zinbox" -type f -name 'r*-inside.md' | wc -l | tr -d ' ')"
+assert_eq "$copies" "1" "one unpacked file"
+cp "$TMP/agents-bar_round1_reply.zip" "$zinbox/agents-bar_round1_reply.zip"
+CHATBAR_SWEEP_SETTLE=0 "$CHATBAR" sweep >/dev/null
+copies="$(find "$zinbox" -type f -name 'r*-inside.md' | wc -l | tr -d ' ')"
+assert_eq "$copies" "1" "sweep did not unpack the same zip again"
+[[ -e "$zinbox/agents-bar_round1_reply.zip" ]] || fail "duplicate zip should stay put when skipped"
+
+# a later round must not be listed together with an inbox that is still new
+MREPO="$TMP/mix-repo"
+mkdir -p "$MREPO"
+MHANDOFF="$TMP/mix 交接"
+"$CHATBAR" project add --name "分轮" --repo "$MREPO" --handoff "$MHANDOFF" >/dev/null
+minbox="$(cd -P "$MHANDOFF" && pwd)/②收回_ChatGPT回复拖到这里"
+printf 'round-one\n' > "$TMP/round-one.md"
+"$CHATBAR" ingest --project "分轮" "$TMP/round-one.md" >/dev/null
+assert_contains "$(cat "$minbox/NEW.json")" "round-one.md" "first round manifest"
+printf '2\n' > "$MHANDOFF/round"
+printf '2\n' > "$MHANDOFF/pack-round"
+printf 'round-two\n' > "$TMP/round-two.md"
+"$CHATBAR" ingest --project "分轮" "$TMP/round-two.md" >/dev/null
+mix_json="$(cat "$minbox/NEW.json")"
+assert_contains "$mix_json" "round-two.md" "current round is listed"
+if printf '%s' "$mix_json" | grep -q 'round-one.md'; then
+  fail "NEW.json mixed the previous round"
+fi
+moved="$(find "$MHANDOFF/已归档" -type f -name 'r*-round-one.md' | head -n 1)"
+[[ -n "$moved" ]] || fail "previous inbox file was not moved to the archive"
+case "$moved" in
+  */已归档/[0-9][0-9][0-9][0-9]-[0-9][0-9]/R001_*) ;;
+  *) fail "previous round was not archived under YYYY-MM/R001: ${moved}" ;;
+esac
+
+# next step: one sentence per state, exact round file
+AREPO="$TMP/agents-bar-repo"
+mkdir -p "$AREPO"
+git init -q "$AREPO"
+git -C "$AREPO" config user.email "chatbar-test@example.com"
+git -C "$AREPO" config user.name "ChatBar Test"
+printf 'a\n' > "$AREPO/main.py"
+git -C "$AREPO" add main.py
+git -C "$AREPO" commit -q -m init
+AHANDOFF="$TMP/agents-bar 交接"
+"$CHATBAR" project add --name "agents-bar" --repo "$AREPO" --handoff "$AHANDOFF" >/dev/null
+need="$("$CHATBAR" next agents-bar)"
+assert_eq "$need" "现在：让 agent 跑 chatbar pack，你先不用做事" "next before pack"
+need_json="$("$CHATBAR" next --json agents-bar)"
+assert_contains "$need_json" '"state":"need_pack"' "next json need_pack"
+assert_contains "$need_json" '"text":"现在：让 agent 跑 chatbar pack，你先不用做事"' "next json text"
+printf 'reply-one\n' > "$TMP/ab-r1.md"
+"$CHATBAR" ingest --project "agents-bar" "$TMP/ab-r1.md" >/dev/null
+got="$("$CHATBAR" next agents-bar)"
+assert_eq "$got" "已收到 R001，交给 agent 处理中，你不用做事" "next inbox new"
+got_json="$("$CHATBAR" next --json --project agents-bar)"
+assert_contains "$got_json" '"state":"inbox"' "next json inbox"
+assert_contains "$got_json" '"round":1' "next json inbox round"
+"$CHATBAR" archive --project "agents-bar" >/dev/null
+"$CHATBAR" pack --project "agents-bar" >/dev/null
+assert_file "$AHANDOFF/①发出_拖给ChatGPT/to_chatgpt_R002.md"
+ready="$("$CHATBAR" next agents-bar)"
+assert_eq "$ready" "现在：① 点『复制给 g 的话』→ ② 在 g 里 Cmd+V → ③ 把 to_chatgpt_R002.md 拖进去 → ④ 发送" "next ready names the file"
+ready_json="$("$CHATBAR" next agents-bar --json)"
+assert_contains "$ready_json" '"state":"ready"' "next json ready"
+assert_contains "$ready_json" '"file":"to_chatgpt_R002.md"' "next json exact file"
+assert_contains "$ready_json" '"reply_file":"agents-bar_round2_reply.zip"' "next json download name"
+assert_contains "$(cat "$AHANDOFF/①发出_拖给ChatGPT/to_chatgpt_R002.md")" "agents-bar_round2_reply.zip" "pack asks for that download"
+"$CHATBAR" project use agents-bar >/dev/null
+menu_next="$("$CHATBAR" swiftbar-menu)"
+assert_contains "$menu_next" "现在：① 点『复制给 g 的话』" "menu top line is the action"
+assert_contains "$menu_next" "to_chatgpt_R002.md" "menu names the file"
+assert_contains "$menu_next" "就做本地这步" "menu one local step"
+assert_contains "$menu_next" "param1=handoff-now" "menu local step command"
+local_out="$("$CHATBAR" handoff-now agents-bar)"
+assert_contains "$local_out" "clipboard:" "handoff copies"
+assert_contains "$local_out" "reveal:" "handoff reveals"
+assert_contains "$local_out" "to_chatgpt_R002.md" "handoff selects the round file"
+still="$("$CHATBAR" next agents-bar)"
+assert_eq "$still" "$ready" "local step does not mark the message sent"
+"$CHATBAR" open agents-bar >/dev/null
+wait="$("$CHATBAR" next agents-bar)"
+assert_eq "$wait" "等 g 回复，回完点下载 agents-bar_round2_reply.zip" "next waiting names the download"
+wait_json="$("$CHATBAR" next --json agents-bar)"
+assert_contains "$wait_json" '"state":"waiting"' "next json waiting"
+"$CHATBAR" project use agents-bar >/dev/null
+menu_wait="$("$CHATBAR" swiftbar-menu)"
+assert_contains "$menu_wait" "等 g 回复，回完点下载 agents-bar_round2_reply.zip" "menu waiting line"
+if printf '%s' "$menu_wait" | grep -q '就做本地这步'; then
+  fail "local step shown while waiting"
+fi
+
+# a hand-written current-round file is ready even when pack-state is still none
+HWREPO="$TMP/hand-repo"
+mkdir -p "$HWREPO"
+git init -q "$HWREPO"
+git -C "$HWREPO" config user.email "chatbar-test@example.com"
+git -C "$HWREPO" config user.name "ChatBar Test"
+printf 'a\n' > "$HWREPO/main.py"
+git -C "$HWREPO" add main.py
+git -C "$HWREPO" commit -q -m init
+HWHANDOFF="$TMP/hand 交接"
+"$CHATBAR" project add --name "手写" --repo "$HWREPO" --handoff "$HWHANDOFF" >/dev/null
+assert_eq "$(tr -d '\r\n' < "$HWHANDOFF/pack-state")" "none" "hand project starts unpacked"
+hw_out="$HWHANDOFF/①发出_拖给ChatGPT"
+printf 'wrong round\n' > "$hw_out/to_chatgpt_R002.md"
+hw_wrong="$("$CHATBAR" next 手写)"
+assert_eq "$hw_wrong" "现在：让 agent 跑 chatbar pack，你先不用做事" "other round file is not ready"
+rm -f "$hw_out/to_chatgpt_R002.md"
+printf 'hand written round\n' > "$hw_out/to_chatgpt_R001.md"
+assert_file "$hw_out/给GPT的话.txt"
+hw_next="$("$CHATBAR" next 手写)"
+assert_eq "$hw_next" "现在：① 点『复制给 g 的话』→ ② 在 g 里 Cmd+V → ③ 把 to_chatgpt_R001.md 拖进去 → ④ 发送" "hand-written pack is ready"
+hw_json="$("$CHATBAR" next --json 手写)"
+assert_contains "$hw_json" '"state":"ready"' "hand-written json ready"
+assert_eq "$(tr -d '\r\n' < "$HWHANDOFF/pack-state")" "none" "next does not rewrite pack-state"
+"$CHATBAR" project use 手写 >/dev/null
+hw_menu="$("$CHATBAR" swiftbar-menu)"
+assert_contains "$hw_menu" "to_chatgpt_R001.md" "hand-written menu names the file"
+assert_contains "$hw_menu" "就做本地这步" "hand-written pack shows the local step"
+rm -f "$hw_out/给GPT的话.txt" "$hw_out/opener.txt" "$hw_out/opener.md"
+hw_bare="$("$CHATBAR" next 手写)"
+assert_eq "$hw_bare" "现在：让 agent 跑 chatbar pack，你先不用做事" "pack file without opener is not ready"
+printf 'opener\n' > "$hw_out/给GPT的话.txt"
+printf 'got it\n' > "$TMP/hw-reply.md"
+"$CHATBAR" ingest --project 手写 "$TMP/hw-reply.md" >/dev/null
+hw_in="$("$CHATBAR" next 手写)"
+assert_eq "$hw_in" "已收到 R001，交给 agent 处理中，你不用做事" "ingested reply beats a hand-written pack"
 
 # safety: no chat UI automation
 safety_paths=()

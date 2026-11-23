@@ -76,6 +76,7 @@ final class CardModel: ObservableObject {
     var bridge: CLIBridge?
     var onIcon: (IconStyle) -> Void = { _ in }
     var presentSettings: () -> Void = {}
+    var presentAdd: () -> Void = {}
     private var loadedOpener = ""
     private var saveItem: DispatchWorkItem?
     private var knownReplies = Set<String>()
@@ -160,6 +161,13 @@ final class CardModel: ObservableObject {
         loadTip()
     }
     func closeSettings() { settingsVisible = false }
+    func addProject() { presentAdd() }
+
+    func createProject(name: String, repo: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !repo.isEmpty else { return }
+        run(.projectAdd(name: trimmed, repo: repo, handoff: "", chat: "", templates: true))
+    }
 
     private func loadTip() {
         guard let bridge else { return }
@@ -285,16 +293,22 @@ final class CardModel: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async {
             let result = try? bridge.run(.next)
             if let result, result.ok, let step = try? JSONDocuments.next(Data(result.stdout.utf8)) {
-                DispatchQueue.main.async { self.applyNext(step) }
+                DispatchQueue.main.async { self.applyNext(step, outbox: project?.outboxDir ?? "") }
             } else {
-                DispatchQueue.main.async { self.applyNext(NextStepFallback.make(project: project)) }
+                DispatchQueue.main.async { self.applyNext(NextStepFallback.make(project: project), outbox: project?.outboxDir ?? "") }
             }
         }
     }
 
-    private func applyNext(_ step: NextStep) {
+    private func applyNext(_ step: NextStep, outbox: String) {
         nextLine = step.line(chinese: L10n.chinese)
-        nextFile = step.file
+        if step.file.hasPrefix("/") {
+            nextFile = step.file
+        } else if !step.file.isEmpty, !outbox.isEmpty {
+            nextFile = (outbox as NSString).appendingPathComponent(step.file)
+        } else {
+            nextFile = ""
+        }
         nextOpener = step.opener
     }
 
@@ -373,7 +387,11 @@ struct CardView: View {
                     Button("应用补丁") { model.applyPatch() }
                     Button("只复制文件") { model.copyFilesOnly() }
                     Button("只复制开场白") { model.copyOpenerOnly() }
-                    Button(L10n.text("menu.settings")) { model.presentSettings() }
+                    Divider()
+                    Menu(L10n.text("menu.more")) {
+                        Button(L10n.text("menu.add")) { model.addProject() }
+                        Button(L10n.text("menu.settings")) { model.presentSettings() }
+                    }
                     Divider()
                     Text(L10n.text("menu.safety"))
                 } label: {
@@ -498,6 +516,7 @@ struct CardView: View {
     private var primaryEnabled: Bool {
         if case .copy = model.phase { return true }
         if case .reply = model.phase { return true }
+        if case .empty = model.phase { return true }
         return false
     }
 
@@ -505,6 +524,7 @@ struct CardView: View {
         switch model.phase {
         case .copy: model.copyBundle()
         case .reply: model.reveal()
+        case .empty: model.addProject()
         default: break
         }
     }
@@ -695,6 +715,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.watch(projects)
         }
         model.presentSettings = { [weak self] in self?.showSettings() }
+        model.presentAdd = { [weak self] in self?.showAddProject() }
         model.refresh()
         if let requested = LaunchRequest.view(from: CommandLine.arguments) {
             present(requested)
@@ -751,6 +772,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.refresh()
         if !popover.isShown {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
+    }
+
+    private func showAddProject() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = L10n.text("add.choose")
+        panel.message = L10n.text("add.message")
+        if #available(macOS 14.0, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            self.model.createProject(name: url.lastPathComponent, repo: url.path)
         }
     }
 

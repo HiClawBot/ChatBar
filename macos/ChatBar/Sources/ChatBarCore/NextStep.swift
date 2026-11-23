@@ -28,9 +28,27 @@ public struct NextStep: Equatable, Decodable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case project, round, action, file, opener
+        case project, round, action, file, opener, text, state
         case lineZh = "line_zh"
         case lineEn = "line_en"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        project = try container.decodeIfPresent(String.self, forKey: .project) ?? ""
+        round = try container.decodeIfPresent(Int.self, forKey: .round) ?? 0
+        let text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
+        lineZh = try container.decodeIfPresent(String.self, forKey: .lineZh) ?? text
+        lineEn = try container.decodeIfPresent(String.self, forKey: .lineEn) ?? lineZh
+        if let named = try container.decodeIfPresent(String.self, forKey: .action) {
+            action = named
+        } else if let state = try container.decodeIfPresent(String.self, forKey: .state) {
+            action = state
+        } else {
+            action = ""
+        }
+        file = try container.decodeIfPresent(String.self, forKey: .file) ?? ""
+        opener = try container.decodeIfPresent(String.self, forKey: .opener) ?? ""
     }
 
     public func line(chinese: Bool) -> String {

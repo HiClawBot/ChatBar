@@ -31,6 +31,8 @@ Agent-agnostic layout. Display folder names are local config; roles are fixed.
 
 `type` is `code_patch` when the reply contains a unified diff (```` ```diff ````, a `.patch` / `.diff` file) or full files with a path header (`File: path`). Those are copied under the inbox role folder at `patches/` (`*.patch` and `patches/files/...`). Each patch object includes `"type": "code_patch"`.
 
+After a zip unpacks, the original zip moves to `<archive>/YYYY-MM/Rnnn_raw/` so a later sweep cannot unpack it again. `<log>/ingested.sha256` records the sha256 of each ingested file. Sweep skips those hashes, and it skips a project while another process holds `<handoff>/.lock`.
+
 ## Archive
 
 Outbox and inbox keep only the current round. A finished round moves to:
@@ -42,6 +44,10 @@ The log role folder holds `轮次总表.md`, `events.jsonl` (`spec_version`, tim
 ## Apply
 
 `chatbar apply` checks out `chatbar/R<NNN>` from `base_commit` and runs `git apply --3way`. It does not use `--force` and does not move `main`. Optional `test_command` in `projects.yaml` runs afterward. A clean apply is committed on that branch so an agent can open a PR.
+
+## Next step
+
+The drag file for round N is `outbox/to_chatgpt_R00N.md` (also written as `to_planner.md`). A hand-written file for the current round counts as ready when an opener is in the outbox (`给GPT的话.txt`, `opener.txt`, or `opener.md`) and that round has no ingested reply. `chatbar next` prints one short Chinese sentence for the current action. `chatbar next --json` returns `text`, `state` (`need_pack`, `ready`, `waiting`, `inbox`, `no_project`), `round`, `file`, and `reply_file` so a native menu bar can show the same sentence. `chatbar handoff-now` copies the opener and selects that exact file in Finder. It does not click or type into any chat app.
 
 ## Writes
 

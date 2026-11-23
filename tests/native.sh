@@ -206,9 +206,9 @@ unset CHATBAR_MACHINE
 
 "$CHATBAR" project use "下载甲" >/dev/null
 next="$("$CHATBAR" next --json)"
-assert_contains "$next" '"line_zh":' "next step has one instruction"
+assert_contains "$next" '"text":' "next step has one instruction"
 assert_contains "$next" 'to_chatgpt_R' "next step names the current round file"
-assert_contains "$next" '"opener":' "next step includes the opener"
+assert_contains "$next" '"state":' "next step has a state"
 
 bash "$ROOT/scripts/lint-iron-rule.sh" "$ROOT"
 
