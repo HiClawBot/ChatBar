@@ -85,7 +85,7 @@ chatbar project add --name "项目甲" --repo ~/code/foo --with-templates
         +-------- chatbar ingest（自动解压、改名、识别补丁） --+
 ```
 
-1. 助手做完一轮后运行 `chatbar pack`。菜单栏第一行只写这一步。包是 `to_chatgpt_R00N.md`。唯一的按钮是「① 复制并选中文件」：开场白进剪贴板，Finder 选中这个文件。你去 g 里粘贴、拖进去、自己点发送。
+1. 助手做完一轮后运行 `chatbar pack`。菜单栏标题只有几个字（例如「复制」）。唯一的按钮是「复制给 g」：开场白进剪贴板，Finder 选中 `to_chatgpt_R00N.md`。你自己去 g 里粘贴、拖入、发送。
 2. 你把包拖进 ChatGPT，粘贴开场白，自己点发送。`chatbar next` 会改成「等 g 回复，回完点下载 {项目}_roundN_reply.zip」。
 3. 你把 ChatGPT 的回复（`.md` / `.txt` / `.zip` / `.pdf` / 图片，名字随意）拖到菜单栏图标，或拖进该项目的收回夹。
 4. ChatBar 解压、按轮次改名、写入 `NEW.json`。若回复里有代码，见下一节。
@@ -138,7 +138,7 @@ The planner chat should not commit. It returns a unified diff against the main c
 真实的 SwiftBar 拖放要在 Mac 上试。清单：
 
 1. `./scripts/install.sh` 之后菜单出现 ChatBar。
-2. 菜单栏第一行是当前这一步。点「① 复制并选中文件」后，Finder 选中 `to_chatgpt_R00N.md`，剪贴板里是这一轮的开场白。聊天软件要自己粘贴、自己发送。
-3. 菜单里没有第二份「复制给 GPT 的话」。其余命令在「更多」里。
+2. 菜单栏标题是短的。有新回复时标题变成「新任务」，项目名前有圆点。点「复制给 g」后，Finder 选中 `to_chatgpt_R00N.md`，剪贴板里是开场白。聊天软件要自己粘贴、自己发送。
+3. 「自动收发」默认关。打开后，后台才会自动收本机文件。检查更新在「更多」里，点「有更新」才安装。
 4. 把一个 zip 或 md 拖到图标上，收回夹或归档里出现改名后的文件；若是 diff，`NEW.json` 的 type 为 `code_patch`。
 5. `chatbar apply` 后当前分支是 `chatbar/R00N`，`main` 的提交没有变。

@@ -87,6 +87,7 @@ cb_cmd_watch_install() {
     <string>/bin/bash</string>
     <string>$(cb_xml_escape "$bin")</string>
     <string>sweep</string>
+    <string>--auto</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -136,13 +137,13 @@ cb_cmd_watch_run() {
   if command -v fswatch >/dev/null 2>&1 && [[ "${#dirs[@]}" -gt 0 ]]; then
     cb_note "watching with fswatch"
     fswatch -0 "${dirs[@]}" | while IFS= read -r -d '' _; do
-      "$CB_BIN" sweep || true
+      "$CB_BIN" sweep --auto || true
     done
     return 0
   fi
   cb_note "fswatch not installed; polling every ${CHATBAR_WATCH_INTERVAL:-3}s"
   while true; do
-    cb_cmd_sweep || true
+    cb_cmd_sweep --auto || true
     sleep "${CHATBAR_WATCH_INTERVAL:-3}"
   done
 }

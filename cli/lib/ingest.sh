@@ -478,6 +478,16 @@ cb_sweep_settle_skip() {
 }
 
 cb_cmd_sweep() {
+  local auto=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --auto) auto=1; shift ;;
+      *) cb_die "unknown flag: $1" ;;
+    esac
+  done
+  if [[ "$auto" == 1 ]] && ! cb_auto_global_on; then
+    return 0
+  fi
   cb_projects_load
   if [[ "${#CB_P_NAME[@]}" -eq 0 ]]; then
     return 0
@@ -489,6 +499,9 @@ cb_cmd_sweep() {
   pending_files=()
   for i in "${!CB_P_NAME[@]}"; do
     cb_load_project_fields "$i"
+    if [[ "$auto" == 1 ]] && ! cb_auto_project_on; then
+      continue
+    fi
     if cb_lock_held_by_other "$CB_HANDOFF"; then
       cb_note "skip sweep while locked: ${CB_NAME}"
       continue

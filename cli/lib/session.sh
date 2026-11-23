@@ -70,9 +70,16 @@ cb_drag_pack_path() {
   fi
 }
 
-# Sets CB_NEXT_STATE, CB_NEXT_TEXT, CB_NEXT_ROUND, CB_NEXT_FILE, CB_NEXT_REPLY.
+# Sets the short title and the one action. No numbered list.
+cb_next_set() {
+  CB_NEXT_STATE="$1"
+  CB_NEXT_TITLE="$2"
+  CB_NEXT_ACTION="$3"
+  CB_NEXT_TEXT="$2"
+}
+
 cb_next_fields() {
-  local pack_state inbox_state inbox_round round label pack_path outdir opener_ok reply_for_round
+  local pack_state inbox_state inbox_round round pack_path outdir opener_ok reply_for_round
   pack_state="$(cb_state_get "$CB_HANDOFF" "pack-state" "none")"
   inbox_state="$(cb_state_get "$CB_HANDOFF" "inbox-state" "none")"
   inbox_round="$(cb_state_get "$CB_HANDOFF" "inbox-round" "0")"
@@ -81,15 +88,12 @@ cb_next_fields() {
     if [[ "$inbox_round" != "0" ]]; then
       round="$inbox_round"
     fi
-    label="$(cb_round_label "$round")"
-    CB_NEXT_STATE="inbox"
     CB_NEXT_ROUND="$round"
     CB_NEXT_FILE="$(cb_pack_filename "$round")"
     CB_NEXT_REPLY="$(cb_reply_download_name "$CB_NAME" "$round")"
-    CB_NEXT_TEXT="已收到 ${label}，交给 agent 处理中，你不用做事"
+    cb_next_set "inbox" "新任务" ""
     return 0
   fi
-  label="$(cb_round_label "$round")"
   outdir="$(cb_dir "$CB_HANDOFF" outbox)"
   pack_path="${outdir}/$(cb_pack_filename "$round")"
   CB_NEXT_ROUND="$round"
@@ -103,28 +107,26 @@ cb_next_fields() {
   if [[ "$inbox_round" == "$round" && "$inbox_round" != "0" ]]; then
     reply_for_round=1
   fi
-  # pack-state=ready, or a hand-written file for this round that has not been answered.
   if [[ -f "$pack_path" && "$reply_for_round" == 0 ]]; then
     if [[ "$pack_state" == "ready" || ( "$pack_state" == "none" && "$opener_ok" == 1 ) ]]; then
-      CB_NEXT_STATE="ready"
-      CB_NEXT_TEXT="现在：① 点『复制给 g 的话』→ ② 在 g 里 Cmd+V → ③ 把 ${CB_NEXT_FILE} 拖进去 → ④ 发送"
+      cb_next_set "ready" "复制" "复制给 g"
       return 0
     fi
   fi
   if [[ "$pack_state" == "presented" ]]; then
-    CB_NEXT_STATE="waiting"
-    CB_NEXT_TEXT="等 g 回复，回完点下载 ${CB_NEXT_REPLY}"
+    cb_next_set "waiting" "等 g" "打开下载"
     return 0
   fi
-  CB_NEXT_STATE="need_pack"
-  CB_NEXT_TEXT="现在：让 agent 跑 chatbar pack，你先不用做事"
+  cb_next_set "need_pack" "待打包" ""
 }
 
 cb_next_emit() {
   local as_json="$1"
   if [[ "$as_json" == 1 ]]; then
-    printf '{"text":"%s","state":"%s","round":%s,"file":"%s","reply_file":"%s"}\n' \
+    printf '{"text":"%s","title_short":"%s","action_label":"%s","state":"%s","round":%s,"file":"%s","reply_file":"%s"}\n' \
       "$(cb_json_escape "$CB_NEXT_TEXT")" \
+      "$(cb_json_escape "${CB_NEXT_TITLE:-}")" \
+      "$(cb_json_escape "${CB_NEXT_ACTION:-}")" \
       "$CB_NEXT_STATE" \
       "${CB_NEXT_ROUND:-0}" \
       "$(cb_json_escape "${CB_NEXT_FILE:-}")" \
@@ -156,7 +158,9 @@ cb_cmd_next() {
   cb_projects_load
   if [[ "${#CB_P_NAME[@]}" -eq 0 ]]; then
     CB_NEXT_STATE="no_project"
-    CB_NEXT_TEXT="现在：先添加项目"
+    CB_NEXT_TITLE="添加"
+    CB_NEXT_ACTION=""
+    CB_NEXT_TEXT="添加"
     CB_NEXT_ROUND=0
     CB_NEXT_FILE=""
     CB_NEXT_REPLY=""
@@ -207,6 +211,9 @@ cb_cmd_open_root() {
 
 cb_cmd_open_downloads() {
   local dir="${CHATBAR_DOWNLOADS:-${HOME}/Downloads}"
+  if [[ -d "$dir" ]]; then
+    dir="$(cd -P "$dir" && pwd)"
+  fi
   cb_show_dir "$dir"
 }
 

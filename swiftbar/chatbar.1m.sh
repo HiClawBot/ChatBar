@@ -44,6 +44,9 @@ fi
 if [[ "${LAUNCHED_FROM_DROP_ACTION:-}" == "TRUE" || -n "${DROPPED_FILES:-}" || -n "${DROPPED_URL:-}" ]]; then
   "$CHATBAR" ingest-drop || true
 fi
-"$CHATBAR" sweep || true
+if [[ -z "${CHATBAR_NO_UPDATE:-}" ]]; then
+  ("$CHATBAR" update --check-if-due >/dev/null 2>&1 &) || true
+fi
+"$CHATBAR" sweep --auto || true
 "$CHATBAR" swiftbar-menu
 fi
