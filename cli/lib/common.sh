@@ -40,6 +40,10 @@ cb_today() {
   date +"%Y-%m-%d"
 }
 
+cb_month() {
+  date +"%Y-%m"
+}
+
 cb_mtime() {
   local target="$1"
   if stat -c %Y "$target" >/dev/null 2>&1; then

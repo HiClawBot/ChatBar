@@ -273,10 +273,6 @@ cb_ingest_project() {
     cb_close_round_unlocked "" >/dev/null || true
     inbox_state="none"
   fi
-  if [[ "$inbox_state" != "new" ]]; then
-    printf '' | cb_atomic_write "$(cb_dir "$CB_HANDOFF" inbox)/.files.tsv"
-  fi
-
   stamp="$(cb_now_stamp)"
   local f sum
   local -a fresh_files fresh_sums
@@ -292,6 +288,20 @@ cb_ingest_project() {
     fresh_files+=("$f")
     fresh_sums+=("$sum")
   done
+  local prev_inbox_round
+  prev_inbox_round="$(cb_state_get "$CB_HANDOFF" "inbox-round" "0")"
+  if [[ "$inbox_state" == "new" && "$prev_inbox_round" != "0" && "$prev_inbox_round" != "$round" ]]; then
+    if [[ "${#fresh_files[@]}" -gt 0 ]]; then
+      cb_archive_previous_inbox_unlocked "$prev_inbox_round" "${fresh_files[@]}" >/dev/null
+    else
+      cb_archive_previous_inbox_unlocked "$prev_inbox_round" >/dev/null
+    fi
+    inbox_state="none"
+  fi
+  if [[ "$inbox_state" != "new" ]]; then
+    printf '' | cb_atomic_write "$(cb_dir "$CB_HANDOFF" inbox)/.files.tsv"
+  fi
+
   if [[ "${#fresh_files[@]}" -eq 0 ]]; then
     cb_unlock "$CB_HANDOFF"
     CB_INGEST_LOCKDIR=""

@@ -413,6 +413,13 @@ assert_contains "$(cat "$zinbox/NEW.json")" '"status": "new"' "zip ingest wrote 
 raw_zip="$(find "$ZHANDOFF/已归档" -type f -name 'agents-bar_round1_reply.zip' | head -n 1)"
 [[ -n "$raw_zip" ]] || fail "raw zip was not archived"
 assert_contains "$raw_zip" "_raw/" "raw zip is under RNNN_raw"
+case "$raw_zip" in
+  */已归档/[0-9][0-9][0-9][0-9]-[0-9][0-9]/R001_raw/*) ;;
+  *) fail "raw zip is not in a monthly archive folder: ${raw_zip}" ;;
+esac
+case "$raw_zip" in
+  */[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/*) fail "raw zip used a day folder: ${raw_zip}" ;;
+esac
 [[ ! -d "$ZHANDOFF/.lock" ]] || fail "successful ingest left a lock"
 copies="$(find "$zinbox" -type f -name 'r*-inside.md' | wc -l | tr -d ' ')"
 assert_eq "$copies" "1" "one unpacked file"
@@ -421,6 +428,31 @@ CHATBAR_SWEEP_SETTLE=0 "$CHATBAR" sweep >/dev/null
 copies="$(find "$zinbox" -type f -name 'r*-inside.md' | wc -l | tr -d ' ')"
 assert_eq "$copies" "1" "sweep did not unpack the same zip again"
 [[ -e "$zinbox/agents-bar_round1_reply.zip" ]] || fail "duplicate zip should stay put when skipped"
+
+# a later round must not be listed together with an inbox that is still new
+MREPO="$TMP/mix-repo"
+mkdir -p "$MREPO"
+MHANDOFF="$TMP/mix 交接"
+"$CHATBAR" project add --name "分轮" --repo "$MREPO" --handoff "$MHANDOFF" >/dev/null
+minbox="$(cd -P "$MHANDOFF" && pwd)/②收回_ChatGPT回复拖到这里"
+printf 'round-one\n' > "$TMP/round-one.md"
+"$CHATBAR" ingest --project "分轮" "$TMP/round-one.md" >/dev/null
+assert_contains "$(cat "$minbox/NEW.json")" "round-one.md" "first round manifest"
+printf '2\n' > "$MHANDOFF/round"
+printf '2\n' > "$MHANDOFF/pack-round"
+printf 'round-two\n' > "$TMP/round-two.md"
+"$CHATBAR" ingest --project "分轮" "$TMP/round-two.md" >/dev/null
+mix_json="$(cat "$minbox/NEW.json")"
+assert_contains "$mix_json" "round-two.md" "current round is listed"
+if printf '%s' "$mix_json" | grep -q 'round-one.md'; then
+  fail "NEW.json mixed the previous round"
+fi
+moved="$(find "$MHANDOFF/已归档" -type f -name 'r*-round-one.md' | head -n 1)"
+[[ -n "$moved" ]] || fail "previous inbox file was not moved to the archive"
+case "$moved" in
+  */已归档/[0-9][0-9][0-9][0-9]-[0-9][0-9]/R001_*) ;;
+  *) fail "previous round was not archived under YYYY-MM/R001: ${moved}" ;;
+esac
 
 # safety: no chat UI automation
 if grep -RInE 'playwright|puppeteer|api\.openai\.com|browser-cookie|tell application "(Safari|Google Chrome|ChatGPT)"|System Events|keystroke' \

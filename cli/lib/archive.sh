@@ -9,7 +9,7 @@ cb_archive_dest() {
   local round="$2"
   local label
   label="$(cb_round_label "$round")"
-  printf '%s/%s/%s_raw' "$(cb_dir "$handoff" archive)" "$(cb_today)" "$label"
+  printf '%s/%s/%s_raw' "$(cb_dir "$handoff" archive)" "$(cb_month)" "$label"
 }
 
 cb_move_to_archive() {
@@ -183,6 +183,58 @@ cb_move_children() {
     mv -f "$f" "${dest}/${base}"
   done
   shopt -u nullglob
+}
+
+# Move a still-open inbox aside so a later round does not share NEW.json.
+# Files are moved, never deleted. Caller holds the handoff lock.
+cb_archive_previous_inbox_unlocked() {
+  local prev_round="$1"
+  shift
+  local inbox dest label stamp month
+  inbox="$(cb_dir "$CB_HANDOFF" inbox)"
+  label="$(printf 'R%03d' "$prev_round")"
+  stamp="$(date '+%Y-%m-%d_%H%M')"
+  month="$(cb_month)"
+  dest="$(cb_dir "$CB_HANDOFF" archive)/${month}/${label}_${stamp}_previous"
+  local n=2
+  while [[ -e "$dest" ]]; do
+    dest="$(cb_dir "$CB_HANDOFF" archive)/${month}/${label}_${stamp}_previous-${n}"
+    n=$((n + 1))
+  done
+  mkdir -p "${dest}/inbox"
+  local f base canon keep_it item
+  shopt -s nullglob
+  for f in "$inbox"/* "$inbox"/.[!.]*; do
+    [[ -e "$f" ]] || continue
+    base="$(basename "$f")"
+    case "$base" in
+      .|..|.tmp.*|.lock) continue ;;
+    esac
+    keep_it=0
+    if [[ "$#" -gt 0 ]]; then
+      canon="$(cb_canon_file "$f")"
+      for item in "$@"; do
+        if [[ "$(cb_canon_file "$item")" == "$canon" ]]; then
+          keep_it=1
+          break
+        fi
+      done
+    fi
+    if [[ "$keep_it" == 1 ]]; then
+      continue
+    fi
+    local target="${dest}/inbox/${base}"
+    if [[ -e "$target" ]]; then
+      target="${dest}/inbox/$(date +%H%M%S)-${base}"
+    fi
+    mv -f "$f" "$target"
+  done
+  shopt -u nullglob
+  cb_state_set "$CB_HANDOFF" "inbox-state" "none"
+  cb_state_set "$CB_HANDOFF" "inbox-round" "0"
+  cb_state_set "$CB_HANDOFF" "inbox-source" ""
+  cb_state_set "$CB_HANDOFF" "inbox-at" ""
+  printf '%s\n' "$dest"
 }
 
 # Caller holds the handoff lock. Prints the archive directory on success.
