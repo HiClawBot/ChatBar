@@ -1,0 +1,6 @@
+#!/bin/bash
+# chatbar hook — refresh the planner pack after a commit. Never fails the commit.
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+if command -v chatbar >/dev/null 2>&1; then
+  chatbar pack --repo "$root" --quiet || true
+fi

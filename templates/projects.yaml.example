@@ -1,0 +1,9 @@
+# Copy to ~/handoff/projects.yaml or let `chatbar project add` write it.
+# chat_name changes the default folder names (①发出_拖给{chat}).
+projects:
+  - name: "示例"
+    repo: "/absolute/path/to/repo"
+    handoff: "/absolute/path/to/repo/.chatbar"
+    workspace: "/absolute/path/to/repo"
+    test_command: "bash -n tests/run.sh"
+    opener: ""
