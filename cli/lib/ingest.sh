@@ -102,7 +102,7 @@ cb_manifest_write() {
   fi
   files_json="${files_json}]"
   local json
-  json="$(printf '{\n  "spec_version": "%s",\n  "project": "%s",\n  "handoff": "%s",\n  "round": %s,\n  "received_at": "%s",\n  "source": "%s",\n  "status": "%s",\n  "direction": "from_planner",\n  "type": "%s",\n  "base_commit": "%s",\n  "patches": %s,\n  "files": %s\n}\n' \
+  json="$(printf '{\n  "spec_version": "%s",\n  "project": "%s",\n  "handoff": "%s",\n  "round": %s,\n  "received_at": "%s",\n  "source": "%s",\n  "status": "%s",\n  "direction": "from_planner",\n  "machine": "%s",\n  "type": "%s",\n  "base_commit": "%s",\n  "patches": %s,\n  "files": %s\n}\n' \
     "$CB_SPEC_VERSION" \
     "$(cb_json_escape "$project")" \
     "$(cb_json_escape "$handoff")" \
@@ -110,6 +110,7 @@ cb_manifest_write() {
     "$(cb_json_escape "$received_at")" \
     "$(cb_json_escape "$source")" \
     "$(cb_json_escape "$status")" \
+    "$(cb_json_escape "$(cb_machine_name)")" \
     "${CB_REPLY_TYPE:-reply}" \
     "$(cb_json_escape "${CB_BASE_COMMIT:-none}")" \
     "${CB_PATCHES_JSON:-[]}" \
@@ -261,11 +262,19 @@ cb_ingest_project() {
   fi
   files_json="${files_json}]"
   cb_log_event "$CB_HANDOFF" "$CB_NAME" "$round" "from_planner" "$files_json" "$bytes"
-  local closed=""
+  cb_clear_error "$CB_HANDOFF"
+  local closed="" new_json
+  new_json="$(cb_dir "$CB_HANDOFF" inbox)/NEW.json"
   if [[ -f "$(cb_dir "$CB_HANDOFF" outbox)/to_planner.md" ]]; then
     closed="$(cb_close_round_unlocked "" || true)"
   fi
+  if [[ -n "$closed" && -f "${closed}/inbox/NEW.json" ]]; then
+    new_json="${closed}/inbox/NEW.json"
+  fi
   cb_unlock "$CB_HANDOFF"
+  if declare -F cb_run_inbox_hooks >/dev/null 2>&1; then
+    cb_run_inbox_hooks "$round" "$new_json" || true
+  fi
   if [[ -n "$closed" ]]; then
     cb_publish_opener >/dev/null || true
     cb_note "closed round -> ${closed}"

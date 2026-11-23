@@ -6,13 +6,19 @@ cb_round_label() {
   printf 'R%03d' "${1:-0}"
 }
 
+# Stable id used in download filenames. ASCII is lowercased; spaces become hyphens.
+cb_project_slug() {
+  local name="$1"
+  name="$(cb_sanitize_filename "$name")"
+  name="${name// /-}"
+  printf '%s' "$name" | tr '[:upper:]' '[:lower:]'
+}
+
+# The planner must name the download <slug>_round<N>_reply.md (or .zip).
 cb_reply_basename() {
   local name="$1"
   local round="$2"
-  local safe
-  safe="$(cb_sanitize_filename "$name")"
-  safe="${safe// /-}"
-  printf '%s_%s_reply.md' "$safe" "$(cb_round_label "$round")"
+  printf '%s_round%s_reply.md' "$(cb_project_slug "$name")" "$round"
 }
 
 cb_clip_text() {
@@ -214,9 +220,10 @@ cb_builtin_opener_body() {
   fi
 }
 
-# Print the opener for this round. Always ends with the delivery-format request.
-cb_build_opener() {
+# $1 round. $2 = 1 to honor <outbox>/opener.md, 0 for the agent/generated text.
+cb_compose_opener() {
   local round="$1"
+  local allow_override="${2:-1}"
   local file questions last_suggestion changed attached body template_path raw
   file="$(cb_reply_basename "$CB_NAME" "$round")"
   questions="$(cb_questions_oneline)"
@@ -226,7 +233,7 @@ cb_build_opener() {
   body=""
   local override
   override="$(cb_dir "$CB_HANDOFF" outbox)/opener.md"
-  if [[ -f "$override" ]] && [[ -s "$override" ]]; then
+  if [[ "$allow_override" == 1 && -f "$override" && -s "$override" ]]; then
     body="$(cat "$override")"
   elif template_path="$(cb_find_opener_template "$round")"; then
     raw="$(cat "$template_path")"
@@ -243,6 +250,27 @@ cb_build_opener() {
     body="${body}"$'\n'"$(cb_delivery_sentence "$file" "$base_hash")"
   fi
   printf '%s' "$body"
+}
+
+# Print the opener for this round. Always ends with the delivery-format request.
+cb_build_opener() {
+  cb_compose_opener "$1" 1
+}
+
+cb_generated_opener() {
+  cb_compose_opener "$1" 0
+}
+
+# Exact text the menu card edits. User file wins and is not rewritten here.
+cb_editable_opener() {
+  local path round
+  path="$(cb_dir "$CB_HANDOFF" outbox)/opener.md"
+  if [[ -f "$path" ]]; then
+    cat "$path"
+    return 0
+  fi
+  round="$(cb_active_round)"
+  cb_generated_opener "$round"
 }
 
 cb_write_copy_command() {
@@ -284,4 +312,95 @@ cb_publish_opener() {
   text="$(cb_build_opener "$round")"
   cb_write_opener_files "$text"
   printf '%s' "$text"
+}
+
+cb_opener_note() {
+  local kind="$1"
+  local body="$2"
+  local logdir dest
+  logdir="$(cb_dir "$CB_HANDOFF" log)"
+  mkdir -p "$logdir"
+  dest="${logdir}/opener-edits.md"
+  {
+    if [[ -f "$dest" ]]; then
+      cat "$dest"
+      printf '\n'
+    else
+      printf '%s\n\n' '# Opener edits'
+    fi
+    printf '## %s round %s %s\n\n' "$(cb_now_iso)" "$(cb_active_round)" "$kind"
+    printf '%s\n' "$body"
+  } | cb_atomic_write "$dest"
+  local bytes
+  bytes="$(cb_bytes "$dest")"
+  cb_log_event "$CB_HANDOFF" "$CB_NAME" "$(cb_active_round)" "opener_edit" \
+    "$(cb_files_json_one "$(cb_rel_under "$CB_HANDOFF" "$dest")" "$bytes")" \
+    "$bytes" "$(printf '"kind":"%s"' "$(cb_json_escape "$kind")")"
+}
+
+cb_cmd_opener_show() {
+  cb_select_project_target "$@"
+  local round text generated source path gen_path
+  round="$(cb_active_round)"
+  path="$(cb_dir "$CB_HANDOFF" outbox)/opener.md"
+  gen_path="$(cb_dir "$CB_HANDOFF" outbox)/opener.generated.md"
+  text="$(cb_editable_opener)"
+  generated="$(cb_generated_opener "$round")"
+  if [[ -f "$path" ]]; then
+    source="user"
+  else
+    source="generated"
+  fi
+  printf '{'
+  printf '"project":"%s",' "$(cb_json_escape "$CB_NAME")"
+  printf '"round":%s,' "$round"
+  printf '"source":"%s",' "$source"
+  printf '"text":"%s",' "$(cb_json_escape "$text")"
+  printf '"generated":"%s",' "$(cb_json_escape "$generated")"
+  printf '"opener_path":"%s",' "$(cb_json_escape "$path")"
+  printf '"generated_path":"%s"' "$(cb_json_escape "$gen_path")"
+  printf '}\n'
+}
+
+cb_cmd_opener_save() {
+  cb_select_project_target "$@"
+  local text round outdir gen_path user_path diff_note
+  text="$(cat)"
+  [[ -n "$(cb_trim "$text")" ]] || cb_die "opener save: empty text"
+  cb_ensure_layout "$CB_HANDOFF"
+  round="$(cb_active_round)"
+  outdir="$(cb_dir "$CB_HANDOFF" outbox)"
+  mkdir -p "$outdir"
+  gen_path="${outdir}/opener.generated.md"
+  user_path="${outdir}/opener.md"
+  cb_lock "$CB_HANDOFF"
+  if [[ ! -s "$gen_path" ]]; then
+    cb_generated_opener "$round" | cb_atomic_write "$gen_path"
+  fi
+  printf '%s' "$text" | cb_atomic_write "$user_path"
+  if command -v diff >/dev/null 2>&1; then
+    diff_note="$(diff -u "$gen_path" "$user_path" || true)"
+  else
+    diff_note="user edited opener ($(wc -c < "$user_path" | tr -d '[:space:]') bytes)"
+  fi
+  [[ -n "$diff_note" ]] || diff_note="user edited opener (no diff)"
+  cb_opener_note "user-edit" "$diff_note"
+  cb_unlock "$CB_HANDOFF"
+  cb_publish_opener >/dev/null || true
+  printf '%s\n' "saved ${user_path}"
+}
+
+cb_cmd_opener_reset() {
+  cb_select_project_target "$@"
+  local path
+  path="$(cb_dir "$CB_HANDOFF" outbox)/opener.md"
+  cb_ensure_layout "$CB_HANDOFF"
+  cb_lock "$CB_HANDOFF"
+  if [[ -f "$path" ]]; then
+    rm -f "$path"
+  fi
+  cb_opener_note "user-reset" "Restored the agent opener. opener.md removed. opener.generated.md kept."
+  cb_unlock "$CB_HANDOFF"
+  cb_publish_opener >/dev/null || true
+  printf '%s\n' "reset"
 }

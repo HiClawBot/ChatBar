@@ -10,6 +10,13 @@ CB_CFG_INBOX=""
 CB_CFG_ARCHIVE=""
 CB_CFG_LOG=""
 CB_CFG_SYNC=""
+CB_CFG_DOWNLOADS_WATCH=""
+CB_CFG_AUTO_COPY=""
+CB_CFG_AUTO_EXCHANGE=""
+CB_CFG_TIP_MINUTES=""
+CB_CFG_TIP_COST=""
+CB_CFG_DOWNLOAD_DIRS=""
+CB_CFG_DOWNLOAD_GLOBS=""
 
 CB_ROLE_HANDOFF=""
 CB_ROLE_CHAT=""
@@ -48,6 +55,13 @@ cb_load_global_config() {
   CB_CFG_ARCHIVE=""
   CB_CFG_LOG=""
   CB_CFG_SYNC=""
+  CB_CFG_DOWNLOADS_WATCH=""
+  CB_CFG_AUTO_COPY=""
+  CB_CFG_AUTO_EXCHANGE=""
+  CB_CFG_TIP_MINUTES=""
+  CB_CFG_TIP_COST=""
+  CB_CFG_DOWNLOAD_DIRS=""
+  CB_CFG_DOWNLOAD_GLOBS=""
   local file="${home}/config.yaml"
   [[ -f "$file" ]] || return 0
   local line trimmed key val
@@ -64,6 +78,25 @@ cb_load_global_config() {
       archive_name) CB_CFG_ARCHIVE="$val" ;;
       log_name) CB_CFG_LOG="$val" ;;
       sync_to) CB_CFG_SYNC="$val" ;;
+      downloads_watch) CB_CFG_DOWNLOADS_WATCH="$val" ;;
+      auto_copy_on_ready) CB_CFG_AUTO_COPY="$val" ;;
+      auto_exchange) CB_CFG_AUTO_EXCHANGE="$val" ;;
+      tip_minutes_per_action) CB_CFG_TIP_MINUTES="$val" ;;
+      tip_cost_per_round) CB_CFG_TIP_COST="$val" ;;
+      download_dir)
+        if [[ -z "${CB_CFG_DOWNLOAD_DIRS}" ]]; then
+          CB_CFG_DOWNLOAD_DIRS="$val"
+        else
+          CB_CFG_DOWNLOAD_DIRS="${CB_CFG_DOWNLOAD_DIRS}"$'\n'"$val"
+        fi
+        ;;
+      download_glob)
+        if [[ -z "${CB_CFG_DOWNLOAD_GLOBS}" ]]; then
+          CB_CFG_DOWNLOAD_GLOBS="$val"
+        else
+          CB_CFG_DOWNLOAD_GLOBS="${CB_CFG_DOWNLOAD_GLOBS}"$'\n'"$val"
+        fi
+        ;;
     esac
   done < "$file"
 }

@@ -13,6 +13,8 @@ CB_P_LOG_NAME=()
 CB_P_WORKSPACE=()
 CB_P_SYNC=()
 CB_P_TEST=()
+CB_P_DOWNLOAD=()
+CB_P_AUTO=()
 
 cb_projects_reset_current() {
   CB_CUR_IN=0
@@ -28,6 +30,8 @@ cb_projects_reset_current() {
   CB_CUR_WORKSPACE=""
   CB_CUR_SYNC=""
   CB_CUR_TEST=""
+  CB_CUR_DOWNLOAD=""
+  CB_CUR_AUTO=""
 }
 
 cb_projects_flush_current() {
@@ -48,6 +52,8 @@ cb_projects_flush_current() {
     CB_P_WORKSPACE+=("${CB_CUR_WORKSPACE:-}")
     CB_P_SYNC+=("${CB_CUR_SYNC:-}")
     CB_P_TEST+=("${CB_CUR_TEST:-}")
+    CB_P_DOWNLOAD+=("${CB_CUR_DOWNLOAD:-}")
+    CB_P_AUTO+=("${CB_CUR_AUTO:-}")
   fi
   cb_projects_reset_current
 }
@@ -65,6 +71,8 @@ cb_projects_load() {
   CB_P_WORKSPACE=()
   CB_P_SYNC=()
   CB_P_TEST=()
+  CB_P_DOWNLOAD=()
+CB_P_AUTO=()
   cb_projects_reset_current
   local file line trimmed key val
   file="$(cb_home)/projects.yaml"
@@ -94,6 +102,8 @@ cb_projects_load() {
       workspace) CB_CUR_WORKSPACE="$val" ;;
       sync_to) CB_CUR_SYNC="$val" ;;
       test_command) CB_CUR_TEST="$val" ;;
+      download_patterns) CB_CUR_DOWNLOAD="$val" ;;
+      auto_exchange) CB_CUR_AUTO="$val" ;;
     esac
   done < "$file"
   cb_projects_flush_current
@@ -137,6 +147,12 @@ cb_projects_save() {
         fi
         if [[ -n "${CB_P_TEST[$i]:-}" ]]; then
           printf '    test_command: %s\n' "$(cb_yaml_quote "${CB_P_TEST[$i]}")"
+        fi
+        if [[ -n "${CB_P_DOWNLOAD[$i]:-}" ]]; then
+          printf '    download_patterns: %s\n' "$(cb_yaml_quote "${CB_P_DOWNLOAD[$i]}")"
+        fi
+        if [[ -n "${CB_P_AUTO[$i]:-}" ]]; then
+          printf '    auto_exchange: %s\n' "$(cb_yaml_quote "${CB_P_AUTO[$i]}")"
         fi
       done
     fi
@@ -280,8 +296,8 @@ cb_finish_project_layout() {
 
 cb_cmd_project_add() {
   local name="" repo="" handoff="" opener="" with_templates=0
-  local chat="" outbox_name="" inbox_name="" archive_name="" log_name="" workspace="" sync_to="" test_command=""
-  local set_opener=0 set_chat=0 set_outbox=0 set_inbox=0 set_archive=0 set_log=0 set_workspace=0 set_sync=0 set_test=0
+  local chat="" outbox_name="" inbox_name="" archive_name="" log_name="" workspace="" sync_to="" test_command="" download_patterns="" auto_exchange=""
+  local set_opener=0 set_chat=0 set_outbox=0 set_inbox=0 set_archive=0 set_log=0 set_workspace=0 set_sync=0 set_test=0 set_download=0 set_auto=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --name) name="${2:-}"; shift 2 ;;
@@ -296,6 +312,8 @@ cb_cmd_project_add() {
       --workspace) workspace="${2:-}"; set_workspace=1; shift 2 ;;
       --sync-to) sync_to="${2:-}"; set_sync=1; shift 2 ;;
       --test-command) test_command="${2:-}"; set_test=1; shift 2 ;;
+      --download-patterns) download_patterns="${2:-}"; set_download=1; shift 2 ;;
+      --auto-exchange) auto_exchange="${2:-}"; set_auto=1; shift 2 ;;
       --with-templates) with_templates=1; shift ;;
       --) shift; break ;;
       -*) cb_die "unknown flag: $1" ;;
@@ -341,6 +359,8 @@ cb_cmd_project_add() {
         if [[ "$set_workspace" == 1 ]]; then CB_P_WORKSPACE[$i]="$workspace"; fi
         if [[ "$set_sync" == 1 ]]; then CB_P_SYNC[$i]="$sync_to"; fi
         if [[ "$set_test" == 1 ]]; then CB_P_TEST[$i]="$test_command"; fi
+        if [[ "$set_download" == 1 ]]; then CB_P_DOWNLOAD[$i]="$download_patterns"; fi
+        if [[ "$set_auto" == 1 ]]; then CB_P_AUTO[$i]="$auto_exchange"; fi
         cb_projects_save
         cb_unlock "$(cb_home)"
         cb_finish_project_layout "$name"
@@ -369,6 +389,8 @@ cb_cmd_project_add() {
   if [[ "$set_workspace" == 1 ]]; then CB_P_WORKSPACE+=("$workspace"); else CB_P_WORKSPACE+=(""); fi
   if [[ "$set_sync" == 1 ]]; then CB_P_SYNC+=("$sync_to"); else CB_P_SYNC+=(""); fi
   if [[ "$set_test" == 1 ]]; then CB_P_TEST+=("$test_command"); else CB_P_TEST+=(""); fi
+  if [[ "$set_download" == 1 ]]; then CB_P_DOWNLOAD+=("$download_patterns"); else CB_P_DOWNLOAD+=(""); fi
+  if [[ "$set_auto" == 1 ]]; then CB_P_AUTO+=("$auto_exchange"); else CB_P_AUTO+=(""); fi
   cb_projects_save
   cb_unlock "$(cb_home)"
   cb_finish_project_layout "$name"
@@ -465,6 +487,8 @@ cb_load_project_fields() {
   CB_WORKSPACE="${CB_P_WORKSPACE[$idx]:-}"
   CB_SYNC="${CB_P_SYNC[$idx]:-}"
   CB_TEST_COMMAND="${CB_P_TEST[$idx]:-}"
+  CB_DOWNLOAD="${CB_P_DOWNLOAD[$idx]:-}"
+  CB_AUTO="${CB_P_AUTO[$idx]:-}"
   if [[ -z "$CB_WORKSPACE" ]]; then
     CB_WORKSPACE="$CB_REPO"
   fi
@@ -522,4 +546,24 @@ cb_attribute_project() {
   fi
   cb_warn "无法归属文件，没有当前项目。Cannot attribute file, no current project: ${file}"
   return 1
+}
+
+cb_cmd_project_auto() {
+  local name="${1:-}" value="${2:-}"
+  [[ -n "$name" && -n "$value" ]] || cb_die "usage: chatbar project auto NAME on|off"
+  name="$(cb_decode_cli_arg "$name")"
+  local idx
+  idx="$(cb_project_find "$name")" || cb_die "unknown project: ${name}"
+  case "$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')" in
+    1|true|on|yes) value="on" ;;
+    0|false|off|no) value="off" ;;
+    *) cb_die "auto exchange must be on or off" ;;
+  esac
+  cb_lock "$(cb_home)"
+  cb_projects_load
+  idx="$(cb_project_find "$name")" || cb_die "unknown project: ${name}"
+  CB_P_AUTO[$idx]="$value"
+  cb_projects_save
+  cb_unlock "$(cb_home)"
+  cb_note "auto exchange ${name}: ${value}"
 }

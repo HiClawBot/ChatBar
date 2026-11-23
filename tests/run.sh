@@ -142,7 +142,7 @@ assert_file "$HANDOFF/①发出_拖给规划聊天/to_planner.md"
 pack_body="$(cat "$HANDOFF/①发出_拖给规划聊天/to_planner.md")"
 assert_contains "$pack_body" "round 1" "opener round"
 assert_contains "$pack_body" "planner" "opener role"
-assert_contains "$pack_body" "项目甲_R001_reply.md" "delivery filename"
+assert_contains "$pack_body" "项目甲_round1_reply.md" "delivery filename"
 assert_contains "$pack_body" "## Delivery format" "delivery section"
 assert_contains "$pack_body" "Base commit (main):" "pack names the base commit"
 assert_contains "$pack_body" "unified diff" "pack asks for a diff"
@@ -166,7 +166,7 @@ assert_contains "$(cat "$logf")" '"spec_version":"0"' "jsonl spec"
 
 open_out="$("$CHATBAR" open)"
 assert_contains "$open_out" "opener:" "open copies opener"
-assert_contains "$open_out" "项目甲_R001_reply.md" "open opener asks for the reply file"
+assert_contains "$open_out" "项目甲_round1_reply.md" "open opener asks for the reply file"
 assert_contains "$open_out" "reveal:" "open reveals"
 assert_contains "$open_out" "layout:outbox-left,inbox-right" "side by side"
 assert_contains "$open_out" "①发出_拖给规划聊天/to_planner.md" "left is the pack"
@@ -277,7 +277,7 @@ pack2="$(cat "$HANDOFF2/①发出_拖给ChatGPT/to_planner.md")"
 assert_contains "$pack2" "Last round you suggested:" "round 2 recalls suggestion"
 assert_contains "$pack2" "先补测试" "suggestion text"
 assert_contains "$pack2" "This round we changed:" "round 2 changes"
-assert_contains "$pack2" "项目乙_R002_reply.md" "round 2 reply filename"
+assert_contains "$pack2" "项目乙_round2_reply.md" "round 2 reply filename"
 copied="$("$CHATBAR" copy-opener "项目乙")"
 assert_contains "$copied" "先补测试" "clipboard opener is dynamic"
 
@@ -374,9 +374,18 @@ fi
 "$CHATBAR" project use "项目乙" >/dev/null
 assert_eq "$(tr -d '\n' < "$CHATBAR_HOME/current")" "项目乙" "current switched"
 
+# shellcheck source=/dev/null
+source "$ROOT/tests/native.sh"
+
 # safety: no chat UI automation
+safety_paths=()
+for safety_dir in cli swiftbar scripts macos hooks packaging; do
+  if [[ -d "$ROOT/$safety_dir" ]]; then
+    safety_paths+=("$ROOT/$safety_dir")
+  fi
+done
 if grep -RInE 'playwright|puppeteer|api\.openai\.com|browser-cookie|tell application "(Safari|Google Chrome|ChatGPT)"|System Events|keystroke' \
-  "$ROOT/cli" "$ROOT/swiftbar" "$ROOT/scripts" >/tmp/safety-hits 2>/dev/null; then
+  "${safety_paths[@]}" >/tmp/safety-hits 2>/dev/null; then
   fail "forbidden automation strings: $(cat /tmp/safety-hits)"
 fi
 

@@ -5,8 +5,22 @@
 CB_SPEC_VERSION="0"
 CB_QUIET="${CB_QUIET:-0}"
 
+cb_record_error() {
+  local handoff="$1"
+  local msg="$2"
+  [[ -n "$handoff" && -d "$handoff" ]] || return 0
+  printf '%s\n' "$msg" | cb_atomic_write "${handoff}/last-error" || true
+}
+
+cb_clear_error() {
+  local handoff="$1"
+  [[ -n "$handoff" && -f "${handoff}/last-error" ]] || return 0
+  rm -f "${handoff}/last-error"
+}
+
 cb_die() {
   printf 'chatbar: %s\n' "$*" >&2
+  cb_record_error "${CB_HANDOFF:-}" "$*" || true
   exit 1
 }
 
@@ -22,6 +36,21 @@ cb_note() {
 
 cb_home() {
   printf '%s' "${CHATBAR_HOME:-$HOME/handoff}"
+}
+
+# This computer's name. A future LAN can tell machines apart. Local only.
+cb_machine_name() {
+  if [[ -n "${CHATBAR_MACHINE:-}" ]]; then
+    printf '%s' "$CHATBAR_MACHINE"
+    return 0
+  fi
+  local name=""
+  name="$(hostname -s 2>/dev/null || true)"
+  if [[ -z "$name" ]]; then
+    name="$(hostname 2>/dev/null || true)"
+  fi
+  [[ -n "$name" ]] || name="unknown"
+  printf '%s' "$name"
 }
 
 cb_ensure_home() {

@@ -251,6 +251,7 @@ cb_close_round_unlocked() {
     "$(printf '[{"path":"%s","bytes":%s}]' "$(cb_json_escape "${rel}/manifest.json")" "$bytes")" \
     "$bytes" "$extra"
   CB_LAST_ARCHIVE="$dest"
+  cb_clear_error "$CB_HANDOFF"
   printf '%s\n' "$dest"
   return 0
 }

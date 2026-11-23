@@ -4,6 +4,24 @@ ChatBar：macOS 菜单栏小工具，在 ChatGPT 和本地编码助手（Codex �
 
 ChatBar is a small macOS menu bar tool that shuttles files between ChatGPT and local coding agents (Codex and others) by drag and drop. It does not automate the web.
 
+## Iron Rule / 铁律
+
+ChatBar 不会点击、脚本化或自动化 ChatGPT 的网页或桌面应用。没有辅助功能、没有注入按键、没有浏览器扩展、不读 Cookie 或令牌、不用你的账号调接口。允许的只有本地文件、剪贴板和 Finder。细则见 [SECURITY.md](SECURITY.md)。
+
+ChatBar never clicks, scripts, or automates the ChatGPT web or desktop app. No accessibility hooks, no injected input, no browser extension, no cookies or tokens, no API on your account. Local files, the pasteboard, and Finder are the whole surface. See [SECURITY.md](SECURITY.md).
+
+## 自动收发 / Auto exchange
+
+默认**关闭**。第一次打开不会自动收下载、也不会自动放到剪贴板。你在卡片上打开「自动收发」之后，还要给具体项目打开「本项目」。
+
+开场白要求对方把下载命名为 `<项目标识>_round<轮次>_reply.md` 或 `.zip`。监视器只按这个标识和轮次归入已打开自动收发的项目。Markdown 里一行同时写着 `R001` 和项目标识也可以。对不上、或同时命中两个项目时，文件留在原地，卡片里出现「选择项目」。同一个项目、同一轮、同一个 sha256 只收一次，重复的会记进日志并跳过。
+
+Auto exchange is **off** until you opt in, and a project also has to be opted in. The opener asks for `<slug>_round<N>_reply.md` or `.zip`. Anything ambiguous stays where it is and the card asks you to pick a project. The same project, round, and sha256 is ingested once.
+
+左键默认打开吧台窗口。项目是包厢，带状态灯和轮次。小卡片（复制、开场白、三个文件夹）在右键，也停在吧台窗口一侧。设置里可以改左键打开哪一个。小费罐用「省掉的动作 × 分钟」和「每一轮少花的额度」估算，假设可以改。记录、`NEW.json` 和 `claims.jsonl` 带本机名字，这一版仍只在本机。
+
+Left-click opens the bar window. Right-click opens the compact card, which is also docked inside the bar. Settings can swap that. The tip jar estimates saved minutes and quota from editable assumptions. Logs, `NEW.json`, and `claims.jsonl` store this machine's name. This version stays on one computer.
+
 ## 为什么做它 / Why
 
 很多人同时付费使用 ChatGPT 和 Codex。ChatGPT 擅长规划和审阅，但读不到本地代码；Codex 的额度更贵；每一轮手工复制、打包、解压都很烦。用脚本去操作 ChatGPT 网页有违反服务条款、导致封号的风险。

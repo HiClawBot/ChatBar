@@ -57,6 +57,16 @@ source "${CB_LIB}/session.sh"
 source "${CB_LIB}/menu.sh"
 # shellcheck source=lib/watch.sh
 source "${CB_LIB}/watch.sh"
+# shellcheck source=lib/hooks.sh
+source "${CB_LIB}/hooks.sh"
+# shellcheck source=lib/config.sh
+source "${CB_LIB}/config.sh"
+# shellcheck source=lib/bundle.sh
+source "${CB_LIB}/bundle.sh"
+# shellcheck source=lib/downloads.sh
+source "${CB_LIB}/downloads.sh"
+# shellcheck source=lib/tip.sh
+source "${CB_LIB}/tip.sh"
 
 cb_help() {
   cat <<'EOF'
@@ -84,7 +94,18 @@ Sending in the planner chat is always your own drag. No web automation.
   chatbar archive [NAME] [--topic TEXT] [--sync PATH]
   chatbar compact [--older-than 90d] [--project NAME] [--sync PATH]
   chatbar sync [--to PATH] [--project NAME]
-  chatbar status [--project NAME]
+  chatbar status [--json] [--project NAME]
+  chatbar opener show|save|reset [NAME]
+  chatbar bundle [--json] [NAME]
+  chatbar mark-presented [NAME]
+  chatbar rounds [NAME]
+  chatbar downloads-scan [--force]
+  chatbar downloads-pending
+  chatbar downloads-assign --file PATH --project NAME
+  chatbar project auto NAME on|off
+  chatbar config get [--json] | set [flags]
+  chatbar tip
+  chatbar log
   chatbar folders [--project NAME]
   chatbar sweep
   chatbar hook install [--repo PATH]
@@ -115,6 +136,37 @@ cb_main() {
     compact) cb_cmd_compact "$@" ;;
     sync) cb_cmd_sync "$@" ;;
     status) cb_cmd_status "$@" ;;
+    opener)
+      local opener_sub="${1:-show}"
+      if [[ $# -gt 0 ]]; then
+        shift
+      fi
+      case "$opener_sub" in
+        show) cb_cmd_opener_show "$@" ;;
+        save) cb_cmd_opener_save "$@" ;;
+        reset) cb_cmd_opener_reset "$@" ;;
+        *) cb_die "usage: chatbar opener show|save|reset" ;;
+      esac
+      ;;
+    bundle) cb_cmd_bundle "$@" ;;
+    mark-presented) cb_cmd_mark_presented "$@" ;;
+    rounds) cb_cmd_rounds "$@" ;;
+    downloads-scan) cb_cmd_downloads_scan "$@" ;;
+    downloads-pending) cb_cmd_downloads_pending "$@" ;;
+    downloads-assign) cb_cmd_downloads_assign "$@" ;;
+    config)
+      local cfg_sub="${1:-get}"
+      if [[ $# -gt 0 ]]; then
+        shift
+      fi
+      case "$cfg_sub" in
+        get) cb_cmd_config_get "$@" ;;
+        set) cb_cmd_config_set "$@" ;;
+        *) cb_die "usage: chatbar config get|set" ;;
+      esac
+      ;;
+    tip) cb_cmd_tip "$@" ;;
+    log) cb_cmd_log "$@" ;;
     folders) cb_cmd_folders "$@" ;;
     done) cb_cmd_done "$@" ;;
     sweep) cb_cmd_sweep "$@" ;;
@@ -127,8 +179,9 @@ cb_main() {
         add) cb_cmd_project_add "$@" ;;
         list) cb_cmd_project_list "$@" ;;
         use) cb_cmd_project_use "$@" ;;
+        auto) cb_cmd_project_auto "$@" ;;
         add-interactive) cb_cmd_project_add_interactive "$@" ;;
-        *) cb_die "usage: chatbar project add|list|use" ;;
+        *) cb_die "usage: chatbar project add|list|use|auto" ;;
       esac
       ;;
     hook)
@@ -144,7 +197,7 @@ cb_main() {
     watch) cb_cmd_watch "$@" ;;
     swiftbar-menu) cb_cmd_swiftbar_menu "$@" ;;
     help|-h|--help) cb_help ;;
-    version|--version) printf 'chatbar %s\n' "0.1.0" ;;
+    version|--version) printf 'chatbar %s\n' "0.2.0" ;;
     *) cb_die "unknown command: ${cmd}. Try: chatbar help" ;;
   esac
 }

@@ -18,12 +18,15 @@ cb_log_event() {
   if [[ -z "$round" || ! "$round" =~ ^[0-9]+$ ]]; then
     round=0
   fi
-  line="$(printf '{"spec_version":"%s","timestamp":"%s","project":"%s","round":%s,"direction":"%s","files":%s,"bytes":%s,"approx_tokens":%s}' \
+  local machine
+  machine="$(cb_machine_name)"
+  line="$(printf '{"spec_version":"%s","timestamp":"%s","project":"%s","round":%s,"direction":"%s","machine":"%s","files":%s,"bytes":%s,"approx_tokens":%s}' \
     "$CB_SPEC_VERSION" \
     "$ts" \
     "$(cb_json_escape "$project")" \
     "$round" \
     "$(cb_json_escape "$direction")" \
+    "$(cb_json_escape "$machine")" \
     "$files_json" \
     "$bytes" \
     "$tokens")"
@@ -35,6 +38,15 @@ cb_log_event() {
   logdir="$(cb_dir "$handoff" log)"
   mkdir -p "$logdir"
   printf '%s\n' "$line" >> "${logdir}/events.jsonl"
+  local claim
+  claim="$(printf '{"spec_version":"%s","timestamp":"%s","project":"%s","round":%s,"machine":"%s","action":"%s"}' \
+    "$CB_SPEC_VERSION" \
+    "$ts" \
+    "$(cb_json_escape "$project")" \
+    "$round" \
+    "$(cb_json_escape "$machine")" \
+    "$(cb_json_escape "$direction")")"
+  printf '%s\n' "$claim" >> "${logdir}/claims.jsonl"
 }
 
 cb_files_json_one() {

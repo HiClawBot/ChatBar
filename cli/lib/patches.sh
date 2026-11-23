@@ -312,6 +312,7 @@ cb_cmd_apply() {
         git -C "$CB_REPO" diff --name-only --diff-filter=U >&2 || true
         rm -f "$err"
         failed=1
+        cb_record_error "$CB_HANDOFF" "conflict applying $(basename "$patch"). Not using --force."
         break
       fi
       rm -f "$err"
@@ -345,6 +346,7 @@ cb_cmd_apply() {
   fi
   if [[ "$failed" -ne 0 ]]; then
     cb_warn "apply stopped on conflict. ${main_ref:-main} was not moved. Resolve by hand or ask the planner for a new diff."
+    cb_record_error "$CB_HANDOFF" "apply stopped on conflict. Not using --force."
     return 1
   fi
 
@@ -356,6 +358,7 @@ cb_cmd_apply() {
     else
       test_status="fail"
       cb_warn "tests failed. Not committing. ${main_ref:-main} was not moved."
+      cb_record_error "$CB_HANDOFF" "tests failed. Not committing."
       return 1
     fi
   fi
@@ -367,6 +370,7 @@ cb_cmd_apply() {
   else
     cb_note "apply produced no file changes"
   fi
+  cb_clear_error "$CB_HANDOFF"
   cb_note "branch=${branch}"
   cb_note "tests=${test_status}"
   if [[ -n "$main_ref" ]]; then
