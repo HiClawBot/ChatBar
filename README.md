@@ -30,13 +30,40 @@ Many people pay for both ChatGPT and Codex. ChatGPT is strong at planning and re
 
 目标是 Apple silicon、macOS 12 及以上。MVP 是脚本，不需要 Rosetta，也没有编译好的二进制。
 
+**这个 MVP 的菜单栏跑在 SwiftBar 上。** 安装脚本会把 SwiftBar 装在 ChatBar 旁边，当作菜单栏宿主。ChatBar 自己还没有菜单栏程序；那是下一步要做的，就是为了去掉 SwiftBar。见 [ROADMAP.md](ROADMAP.md)。
+
+**This MVP's menu bar runs on SwiftBar.** The installer puts SwiftBar next to ChatBar and uses it as the menu-bar host. ChatBar does not have its own menu-bar app yet. Removing that dependency is the next priority. See [ROADMAP.md](ROADMAP.md).
+
 ```bash
 git clone https://github.com/HiClawBot/ChatBar.git
 cd ChatBar
 ./scripts/install.sh
 ```
 
-脚本会 `brew install --cask swiftbar`（失败再试 `brew install swiftbar`），把 `swiftbar/chatbar.1m.sh` 链到 SwiftBar 插件目录，并把 `chatbar` 链到 `~/.local/bin`。可选 `./scripts/install.sh --launchd` 监听 inbox。
+脚本会 `brew install --cask swiftbar`（失败再试 `brew install swiftbar`），把插件链进插件目录（仓库可以在带中文的外置盘上），然后**重启 SwiftBar**。`chatbar` 命令链到 `~/.local/bin`。可选 `./scripts/install.sh --launchd` 监听 inbox。
+
+安装结束时你应该看到一条 ChatBar 通知：「ChatBar 已就绪，看菜单栏右上角的 ⇄ ChatBar」。菜单栏右上角出现 **⇄ ChatBar**。
+
+安装脚本会在第一次打开 SwiftBar 之前写好它的偏好，所以**不该**再看到这些 SwiftBar 自己的对话框：
+
+- 选择插件文件夹
+- Sparkle 的「自动检查更新？」
+
+自动检查更新被关掉了（`SUEnableAutomaticChecks` 为 false），避免安装时弹出 SwiftBar 的更新窗口。以后若要打开，到 SwiftBar 的设置里改。
+
+安装过程中仍可能看到：
+
+- Homebrew 下载 SwiftBar 时自己的英文安装日志
+- macOS 第一次打开从网络安装的 SwiftBar 时，系统的「来自互联网的应用」确认。这是系统提示，不是 ChatBar 的
+
+The script links the plugin even when the repo path is on an external volume and contains Chinese, then restarts SwiftBar so the menu item shows up. You should get a ChatBar notification: "ChatBar is ready. Look for ⇄ ChatBar at the right of the menu bar."
+
+The installer writes SwiftBar's preferences before the first launch, so you should **not** see SwiftBar's own dialogs for choosing a plugin folder or for Sparkle's "check for updates automatically?". Automatic update checks are turned off (`SUEnableAutomaticChecks` is false) so that prompt stays away. You can turn checks back on later in SwiftBar's settings.
+
+You may still see:
+
+- Homebrew's own English log while it downloads SwiftBar
+- One macOS confirmation the first time an app downloaded from the internet is opened. That prompt is from macOS, not from ChatBar.
 
 交接数据默认在 `~/handoff`。可以是任意路径，包括带中文或空格的外置盘，例如 `/Volumes/4T_14000M_80G/HiBot/Projects/ChatBar/handoff`：
 

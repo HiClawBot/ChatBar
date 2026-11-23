@@ -383,6 +383,13 @@ fi
 PREFIX="$TMP/prefix"
 bash "$ROOT/scripts/install.sh" --prefix "$PREFIX" --skip-swiftbar >/dev/null
 [[ -x "$PREFIX/bin/chatbar" || -L "$PREFIX/bin/chatbar" ]] || fail "install did not link chatbar"
+install_src="$(cat "$ROOT/scripts/install.sh")"
+assert_contains "$install_src" "SUHasLaunchedBefore" "installer seeds Sparkle launched flag"
+assert_contains "$install_src" "SUEnableAutomaticChecks" "installer documents update checks"
+assert_contains "$install_src" "SUAutomaticallyUpdate" "installer disables auto update"
+assert_contains "$install_src" "MakePluginExecutable" "installer makes plugins executable"
+assert_contains "$install_src" "killall SwiftBar" "installer restarts SwiftBar"
+assert_contains "$install_src" "open -a SwiftBar" "installer launches SwiftBar"
 
 if [[ "$FAILS" -ne 0 ]]; then
   echo "$FAILS test assertion(s) failed" >&2
