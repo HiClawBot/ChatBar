@@ -46,3 +46,4 @@
 "menu.add" = "添加项目…";
 "add.choose" = "添加";
 "add.message" = "选代码文件夹。项目名用文件夹的名字。";
+"menu.back" = "上一步";

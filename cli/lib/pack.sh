@@ -102,6 +102,7 @@ cb_try_full_pack() {
 }
 
 cb_cmd_pack() {
+  local auto=0
   local name="" repo_filter="" do_full=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -112,6 +113,7 @@ cb_cmd_pack() {
         ;;
       --full) do_full=1; shift ;;
       --no-full) do_full=0; shift ;;
+      --auto) auto=1; shift ;;
       --quiet) CB_QUIET=1; shift ;;
       --) shift; break ;;
       -*) cb_die "unknown flag: $1" ;;
@@ -130,8 +132,31 @@ cb_cmd_pack() {
   else
     cb_resolve_project_arg "$name"
   fi
+  if [[ "$auto" == 1 ]]; then
+    cb_auto_enabled && cb_auto_enabled "$CB_HANDOFF" || return 0
+  fi
   cb_ensure_layout "$CB_HANDOFF"
   cb_lock "$CB_HANDOFF"
+  if [[ "$auto" == 1 ]]; then
+    if ! cb_auto_enabled || ! cb_auto_enabled "$CB_HANDOFF"; then
+      cb_unlock "$CB_HANDOFF"
+      return 0
+    fi
+    cb_next_fields transfer
+    case "$CB_NEXT_STEP" in
+      need_pack|copy) ;;
+      received)
+        if [[ "$(cb_state_get "$CB_HANDOFF" inbox-state none)" == new ]]; then
+          cb_unlock "$CB_HANDOFF"
+          return 0
+        fi
+        ;;
+      *)
+        cb_unlock "$CB_HANDOFF"
+        return 0
+        ;;
+    esac
+  fi
 
   local inbox_state round pack_round
   inbox_state="$(cb_state_get "$CB_HANDOFF" "inbox-state" "none")"

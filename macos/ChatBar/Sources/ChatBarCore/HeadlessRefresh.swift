@@ -14,32 +14,25 @@ public enum HeadlessRefresh {
             home: home,
             runner: ProcessCommandRunner(timeout: 5)
         )
-        let status: CLIResult
-        let next: CLIResult
         do {
-            status = try bridge.run(.status)
-            next = try bridge.run(.next)
+            let status = try bridge.run(.status)
+            guard status.ok else {
+                fputs("dump-state: status \(status.code) \(status.stderr)\n", stderr)
+                return 1
+            }
+            let document = try JSONDocuments.status(Data(status.stdout.utf8))
+            let project = document.projects.first { $0.current } ?? document.projects.first
+            let step = try bridge.nextStep(project: project?.name)
+            print("project: \(step.project)")
+            print("round: \(step.round)")
+            print("step: \(step.step.rawValue)")
+            print("title_short: \(step.titleShort)")
+            print("action_label: \(step.actionLabel)")
+            print("file: \(step.file)")
+            return 0
         } catch {
             fputs("dump-state: \(error.localizedDescription)\n", stderr)
             return 1
         }
-        guard status.ok, let document = try? JSONDocuments.status(Data(status.stdout.utf8)) else {
-            fputs("dump-state: status \(status.code) \(status.stderr)\n", stderr)
-            return 1
-        }
-        guard next.ok, let step = try? JSONDocuments.next(Data(next.stdout.utf8)) else {
-            fputs("dump-state: next \(next.code) \(next.stderr)\n", stderr)
-            return 1
-        }
-        let project = document.projects.first { $0.current } ?? document.projects.first
-        let name = project?.name ?? ""
-        let line = step.verbatimLine
-        print("project: \(name)")
-        print("next: \(line)")
-        if name.isEmpty || line.isEmpty {
-            fputs("dump-state: empty project or next line\n", stderr)
-            return 1
-        }
-        return 0
     }
 }

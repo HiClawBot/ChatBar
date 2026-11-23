@@ -100,6 +100,7 @@ enum L10n {
         "settings.tipCost": "每一轮少花的额度",
         "settings.save": "存储",
         "next.button": "复制开场白并选中文件",
+        "menu.back": "上一步",
         "menu.more": "更多",
         "menu.add": "添加项目…",
         "add.choose": "添加",

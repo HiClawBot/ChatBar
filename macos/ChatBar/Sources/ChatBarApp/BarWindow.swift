@@ -10,7 +10,6 @@ struct BarWindowView: View {
         HStack(alignment: .top, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    NextStepBanner(model: model)
                     Text(L10n.text("bar.title"))
                         .font(.system(size: 22, weight: .semibold))
                     rooms
@@ -94,7 +93,7 @@ struct RoomTile: View {
     }
 
     private var light: Color {
-        if project.inboxState == "new" { return .red }
+        if project.newTask ?? (project.inboxState == "new") { return .red }
         if !project.error.isEmpty { return .orange }
         if project.packState == "ready" || project.packState == "presented" { return .accentColor }
         return Color.primary.opacity(0.28)

@@ -205,7 +205,9 @@ cb_write_folders_json() {
     "$(cb_json_escape "$CB_ROLE_INBOX")" \
     "$(cb_json_escape "$CB_ROLE_ARCHIVE")" \
     "$(cb_json_escape "$CB_ROLE_LOG")")"
-  printf '%s' "$json" | cb_atomic_write "${handoff}/folders.json"
+  local dest="${handoff}/folders.json"
+  if [[ -f "$dest" && "$(cat "$dest")" == "$json" ]]; then return 0; fi
+  printf '%s' "$json" | cb_atomic_write "$dest"
 }
 
 cb_migrate_role_dirs() {

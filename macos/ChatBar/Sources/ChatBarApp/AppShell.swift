@@ -9,8 +9,6 @@ import UserNotifications
 
 final class CardModel: ObservableObject {
     @Published var projectName = ""
-    @Published var round = 1
-    @Published var phase: CardPhase = .empty
     @Published var openerText = ""
     @Published var openerExpanded = false
     @Published var autoExchange = false
@@ -25,15 +23,18 @@ final class CardModel: ObservableObject {
     @Published var tipCostField = "0"
     @Published var sceneEvents: [SceneEvent] = []
     @Published var settingsVisible = false
-    @Published var nextLine = ""
-    @Published var nextFile = ""
-    @Published var nextOpener = ""
+    @Published private(set) var nextStep: NextStep?
 
     var bridge: CLIBridge?
     var onIcon: (IconStyle) -> Void = { _ in }
     var presentSettings: () -> Void = {}
     var presentAdd: () -> Void = {}
     var onFirstRefresh: (() -> Void)?
+    var onWatchPaths: ([String]) -> Void = { _ in }
+    private let commands = DispatchQueue(label: "chatbar.commands", qos: .userInitiated)
+    private var refreshID = 0
+    private var commandInFlight = false
+    private var openerProject = ""
     private var loadedOpener = ""
     private var saveItem: DispatchWorkItem?
     private var knownReplies = Set<String>()
@@ -44,18 +45,28 @@ final class CardModel: ObservableObject {
 
     var preview: String { OpenerPreview.line(from: openerText) }
 
-    func refresh() {
-        guard let bridge else { return }
-        DispatchQueue.global(qos: .userInitiated).async {
-            let statusResult: CLIResult
-            do {
-                statusResult = try bridge.run(.status)
-            } catch {
-                statusResult = CLIResult(code: 1, stdout: "", stderr: error.localizedDescription)
+    var statusTitle: String {
+        if projects.contains(where: { $0.newTask == true }) { return "新任务" }
+        return nextStep?.titleShort ?? "ChatBar"
+    }
+
+    func refresh(automatic: Bool = false, commandError: String? = nil) {
+        guard let bridge, !commandInFlight else { return }
+        refreshID += 1
+        let id = refreshID
+        commands.async {
+            if automatic { _ = try? bridge.run(.sweep(automatic: true)) }
+            let status = try? bridge.run(.status)
+            let document = status.flatMap { result in
+                result.ok ? try? JSONDocuments.status(Data(result.stdout.utf8)) : nil
             }
+            let current = document?.projects.first { $0.current } ?? document?.projects.first
+            let next = document.map { _ in Result { try bridge.nextStep(project: current?.name) } }
             let pendingResult = try? bridge.run(.downloadsPending)
             DispatchQueue.main.async {
-                self.apply(status: statusResult, pending: pendingResult)
+                guard id == self.refreshID else { return }
+                self.apply(status: status, document: document, next: next, pending: pendingResult)
+                if let commandError { self.errorLine = commandError }
             }
         }
     }
@@ -71,47 +82,20 @@ final class CardModel: ObservableObject {
     }
 
     func resetOpener() {
-        guard let bridge, !projectName.isEmpty else { return }
-        let name = projectName
-        DispatchQueue.global().async {
-            _ = try? bridge.run(.openerReset(name))
-            DispatchQueue.main.async { self.refresh() }
-        }
-    }
-
-    func copyBundle() {
-        guard let bridge, !projectName.isEmpty else { return }
-        let name = projectName
-        let text = openerText
-        saveOpener(name: name, text: text)
-        DispatchQueue.global(qos: .userInitiated).async {
-            let bundle = try? bridge.run(.bundle(name))
-            var files: [String] = []
-            if let bundle, let document = try? JSONDocuments.bundle(Data(bundle.stdout.utf8)) {
-                files = document.files
-            }
-            DispatchQueue.main.async {
-                PasteboardWriter.write(opener: text, files: files, mode: .bundle)
-                _ = try? bridge.run(.markPresented(name))
-                let chat = self.projects.first { $0.name == name }?.chatName ?? "ChatGPT"
-                Notifier.post(
-                    title: "ChatBar",
-                    body: L10n.format("notify.ready", self.round, chat)
-                )
-                self.refresh()
-            }
-        }
+        guard !projectName.isEmpty else { return }
+        saveItem?.cancel()
+        run(.openerReset(projectName))
     }
 
     func reveal() { run(.reveal(projectName)) }
-    func openRoot() { run(.openHandoff(projectName)) }
+    func openHandoff() { run(.openHandoff(projectName)) }
+    func openRoot() { run(.openRoot(projectName)) }
     func pack() { run(.pack(projectName)) }
     func archiveRound() { run(.archive(projectName)) }
     func applyPatch() { run(.apply(projectName)) }
-    func selectRoom(_ name: String) {
-        projectName = name
-        run(.projectUse(name))
-    }
+    func sweep() { run(.sweep(automatic: false)) }
+    func selectRoom(_ name: String) { run(.projectUse(name)) }
+
     func loadBar() {
         loadTip()
         loadScene()
@@ -155,22 +139,6 @@ final class CardModel: ObservableObject {
         }
     }
 
-    func copyFilesOnly() {
-        guard let bridge, !projectName.isEmpty else { return }
-        let name = projectName
-        DispatchQueue.global().async {
-            let bundle = try? bridge.run(.bundle(name))
-            var files: [String] = []
-            if let bundle, let document = try? JSONDocuments.bundle(Data(bundle.stdout.utf8)) {
-                files = document.files
-            }
-            DispatchQueue.main.async { PasteboardWriter.write(opener: "", files: files, mode: .files) }
-        }
-    }
-
-    func copyOpenerOnly() {
-        PasteboardWriter.write(opener: openerText, files: [], mode: .opener)
-    }
     func setMaster(_ on: Bool) {
         var patch = ConfigPatch()
         patch.autoExchange = on
@@ -185,42 +153,86 @@ final class CardModel: ObservableObject {
     }
 
     private func saveOpener(name: String, text: String) {
-        guard let bridge, text != loadedOpener else { return }
-        DispatchQueue.global().async {
-            _ = try? bridge.run(.openerSave(name), standardInput: text)
-            DispatchQueue.main.async { self.loadedOpener = text }
+        guard let bridge, name == openerProject, text != loadedOpener else { return }
+        commands.async {
+            guard let result = try? bridge.run(.openerSave(name), standardInput: text), result.ok else { return }
+            DispatchQueue.main.async {
+                guard self.openerProject == name else { return }
+                self.loadedOpener = text
+            }
         }
     }
 
-    private func run(_ command: CLICommand) {
-        guard let bridge else { return }
-        DispatchQueue.global(qos: .userInitiated).async {
-            _ = try? bridge.run(command)
-            DispatchQueue.main.async { self.refresh() }
+    private func run(_ command: CLICommand, opener: (project: String, text: String)? = nil) {
+        guard let bridge, !commandInFlight else { return }
+        commandInFlight = true
+        refreshID += 1
+        nextStep = nil
+        commands.async {
+            let error: String?
+            do {
+                if let opener {
+                    let saved = try bridge.run(.openerSave(opener.project), standardInput: opener.text)
+                    if !saved.ok {
+                        let message = Self.failureLine(saved, fallback: "chatbar opener save (\(saved.code))")
+                        DispatchQueue.main.async { self.finishCommand(error: message) }
+                        return
+                    }
+                }
+                let result = try bridge.run(command)
+                error = result.ok ? nil : Self.failureLine(result, fallback: "chatbar (\(result.code))")
+            } catch let failure {
+                error = failure.localizedDescription
+            }
+            DispatchQueue.main.async { self.finishCommand(error: error) }
         }
     }
 
-    private func apply(status: CLIResult?, pending pendingResult: CLIResult?) {
+    private func finishCommand(error: String?) {
+        commandInFlight = false
+        refresh(automatic: true, commandError: error)
+    }
+
+    private func apply(
+        status: CLIResult?,
+        document: StatusDocument?,
+        next: Result<NextStep, Error>?,
+        pending pendingResult: CLIResult?
+    ) {
         defer { noteFirstRefresh() }
-        guard let status else {
-            showCommandError("chatbar 没有返回")
-            return
-        }
-        guard status.ok, let doc = try? JSONDocuments.status(Data(status.stdout.utf8)) else {
-            showCommandError(Self.failureLine(status, fallback: "chatbar status 失败 (\(status.code))"))
+        guard let doc = document else {
+            nextStep = nil
+            errorLine = status.map { Self.failureLine($0, fallback: "chatbar status (\($0.code))") } ?? "chatbar 没有返回"
             return
         }
         projects = doc.projects
         autoExchange = doc.autoExchange
         let current = doc.projects.first { $0.current } ?? doc.projects.first
-        projectName = current?.name ?? ""
-        round = current?.round ?? 1
-        projectAuto = current?.projectAuto ?? false
-        phase = CardPhaseResolver.resolve(project: current)
-        errorLine = current?.error ?? ""
-        if case .copy = phase, openerExpanded == false, loadedOpener.isEmpty {
-            openerExpanded = true
+        let name = current?.name ?? ""
+        if projectName != name {
+            projectName = name
+            openerProject = name
+            openerText = ""
+            loadedOpener = ""
+            openerExpanded = false
+            rounds = []
+            lastPackStamp = ""
         }
+        projectAuto = current?.projectAuto ?? false
+        errorLine = current?.error ?? ""
+        switch next {
+        case .success(let step):
+            nextStep = step
+            if step.step == .copy && loadedOpener.isEmpty { openerExpanded = true }
+        case .failure(let error):
+            nextStep = nil
+            errorLine = error.localizedDescription
+        case nil:
+            nextStep = nil
+        }
+        var paths = doc.projects.map(\.handoff)
+        if doc.autoExchange, let downloads = doc.downloadDir { paths.append(downloads) }
+        onWatchPaths(paths)
         onIcon(IconStyleResolver.style(projects: doc.projects, dropHighlighted: false))
         if let pendingResult, pendingResult.ok,
            let pendingDoc = try? JSONDocuments.pending(Data(pendingResult.stdout.utf8)) {
@@ -234,9 +246,9 @@ final class CardModel: ObservableObject {
             knownPending = Set(pendingDoc.items.map(\.path))
         }
         if let current {
-            let stamp = current.packAt + current.presentedAt + current.inboxState
-            if primed, current.inboxState == "new", !knownReplies.contains(current.name + ":\(current.round)") {
-                knownReplies.insert(current.name + ":\(current.round)")
+            let stamp = current.packAt + current.presentedAt + current.inboxState + String(current.round)
+            if primed, let nextStep, nextStep.step == .received, nextStep.titleShort == "新任务",
+               knownReplies.insert(current.name + ":\(nextStep.round)").inserted {
                 Notifier.post(title: "ChatBar", body: L10n.format("notify.reply", current.name))
             }
             if stamp != lastPackStamp {
@@ -246,18 +258,12 @@ final class CardModel: ObservableObject {
             }
         }
         primed = true
-        loadNext(project: current)
     }
 
     private func noteFirstRefresh() {
         guard !reportedFirstRefresh else { return }
         reportedFirstRefresh = true
         onFirstRefresh?()
-    }
-
-    private func showCommandError(_ message: String) {
-        errorLine = message
-        nextLine = message
     }
 
     private static func failureLine(_ result: CLIResult, fallback: String) -> String {
@@ -269,70 +275,25 @@ final class CardModel: ObservableObject {
         return fallback
     }
 
-    func performNext() {
-        var opener = nextOpener.isEmpty ? openerText : nextOpener
-        if opener.isEmpty, !nextFile.isEmpty {
-            let dir = (nextFile as NSString).deletingLastPathComponent
-            for name in ["opener.md", "给GPT的话.txt", "opener.txt"] {
-                let path = (dir as NSString).appendingPathComponent(name)
-                if let text = try? String(contentsOfFile: path, encoding: .utf8),
-                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    opener = text
-                    break
-                }
-            }
+    func performNext(_ direction: NextStep.Direction = .advance) {
+        guard let step = nextStep, step.project == projectName else { return }
+        guard direction == .advance ? step.canAdvance : step.canGoBack else { return }
+        var opener: (String, String)?
+        if direction == .advance, step.step == .copy,
+           openerProject == step.project, openerText != loadedOpener {
+            saveItem?.cancel()
+            opener = (step.project, openerText)
         }
-        PasteboardWriter.write(opener: opener, files: [], mode: .opener)
-        guard !nextFile.isEmpty, FileManager.default.fileExists(atPath: nextFile) else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: nextFile)])
-    }
-
-    private func loadNext(project: ProjectStatus?) {
-        guard let bridge else {
-            applyNext(NextStepFallback.make(project: project), outbox: project?.outboxDir ?? "")
-            return
-        }
-        let outbox = project?.outboxDir ?? ""
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                let result = try bridge.run(.next)
-                if result.ok, let step = try? JSONDocuments.next(Data(result.stdout.utf8)) {
-                    DispatchQueue.main.async { self.applyNext(step, outbox: outbox) }
-                } else {
-                    let message = Self.failureLine(result, fallback: "")
-                    DispatchQueue.main.async {
-                        if message.isEmpty {
-                            self.applyNext(NextStepFallback.make(project: project), outbox: outbox)
-                        } else {
-                            self.showCommandError(message)
-                        }
-                    }
-                }
-            } catch {
-                DispatchQueue.main.async { self.showCommandError(error.localizedDescription) }
-            }
-        }
-    }
-
-    private func applyNext(_ step: NextStep, outbox: String) {
-        nextLine = step.verbatimLine
-        if step.file.hasPrefix("/") {
-            nextFile = step.file
-        } else if !step.file.isEmpty, !outbox.isEmpty {
-            nextFile = (outbox as NSString).appendingPathComponent(step.file)
-        } else {
-            nextFile = ""
-        }
-        nextOpener = step.opener
+        run(.step(direction, step), opener: opener)
     }
 
     private func loadOpener(_ name: String) {
         guard let bridge else { return }
-        DispatchQueue.global().async {
+        commands.async {
             guard let result = try? bridge.run(.openerShow(name)), result.ok,
                   let doc = try? JSONDocuments.opener(Data(result.stdout.utf8)) else { return }
             DispatchQueue.main.async {
-                if self.openerText == self.loadedOpener {
+                if self.openerProject == name && self.openerText == self.loadedOpener {
                     self.openerText = doc.text
                     self.loadedOpener = doc.text
                 }
@@ -342,10 +303,13 @@ final class CardModel: ObservableObject {
 
     private func loadRounds(_ name: String) {
         guard let bridge else { return }
-        DispatchQueue.global().async {
+        commands.async {
             guard let result = try? bridge.run(.rounds(name)), result.ok,
                   let doc = try? JSONDocuments.rounds(Data(result.stdout.utf8)) else { return }
-            DispatchQueue.main.async { self.rounds = doc.rounds.reversed() }
+            DispatchQueue.main.async {
+                guard self.projectName == name else { return }
+                self.rounds = doc.rounds.reversed()
+            }
         }
     }
 }
@@ -359,14 +323,12 @@ struct CardView: View {
             header
             if !model.pending.isEmpty { pendingList }
             opener
-            primary
-            folders
             if !model.rounds.isEmpty { timeline }
         }
         .padding(16)
         .frame(width: 340, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.ultraThinMaterial))
-        .animation(.easeInOut(duration: 0.18), value: model.phaseToken)
+        .animation(.easeInOut(duration: 0.18), value: model.nextStep)
     }
 
     private var header: some View {
@@ -376,7 +338,7 @@ struct CardView: View {
                     .font(.system(size: 16, weight: .semibold))
                     .lineLimit(1)
                 Spacer()
-                Text(model.projectName.isEmpty ? "" : "R\(model.round)")
+                Text(model.nextStep.flatMap { $0.project.isEmpty ? nil : "R\($0.round)" } ?? "")
                     .font(.system(size: 12, weight: .medium))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
@@ -389,27 +351,26 @@ struct CardView: View {
                 .buttonStyle(.bordered)
                 .tint(model.autoExchange ? Color.accentColor : Color.secondary)
                 Spacer()
-                if !model.projectName.isEmpty {
-                    Button("\(L10n.text("auto.project"))：\(model.projectAuto ? L10n.text("auto.on") : L10n.text("auto.off"))") {
-                        model.setProjectAuto(!model.projectAuto)
+                Menu(L10n.text("menu.more")) {
+                    if model.nextStep?.canGoBack == true {
+                        Button(L10n.text("menu.back")) { model.performNext(.back) }
                     }
-                    .buttonStyle(.bordered)
-                }
-                Menu {
-                    Button("打包") { model.pack() }
-                    Button("结束本轮") { model.archiveRound() }
-                    Button("应用补丁") { model.applyPatch() }
-                    Button("只复制文件") { model.copyFilesOnly() }
-                    Button("只复制开场白") { model.copyOpenerOnly() }
-                    Divider()
-                    Menu(L10n.text("menu.more")) {
-                        Button(L10n.text("menu.add")) { model.addProject() }
-                        Button(L10n.text("menu.settings")) { model.presentSettings() }
+                    if !model.projectName.isEmpty {
+                        Button("打包") { model.pack() }
+                        Button("打开收发窗口") { model.reveal() }
+                        Button("结束本轮") { model.archiveRound() }
+                        Button("应用补丁") { model.applyPatch() }
+                        Menu(model.projectName) {
+                            Button(L10n.format("auto.title", model.projectAuto ? L10n.text("auto.on") : L10n.text("auto.off"))) {
+                                model.setProjectAuto(!model.projectAuto)
+                            }
+                            Button("打开交接目录") { model.openHandoff() }
+                            Button("打开项目根目录") { model.openRoot() }
+                        }
                     }
-                    Divider()
-                    Text(L10n.text("menu.safety"))
-                } label: {
-                    Image(systemName: "gearshape")
+                    Button("刷新") { model.sweep() }
+                    Button(L10n.text("menu.add")) { model.addProject() }
+                    Button(L10n.text("menu.settings")) { model.presentSettings() }
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
@@ -468,25 +429,6 @@ struct CardView: View {
         }
     }
 
-    private var primary: some View {
-        Button(action: primaryAction) {
-            Text(primaryTitle)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
-        }
-        .buttonStyle(.borderedProminent)
-        .disabled(!primaryEnabled)
-        .tint(primaryEnabled ? Color.accentColor : Color.secondary)
-    }
-
-    private var folders: some View {
-        HStack {
-            folderButton("tray.and.arrow.up", L10n.text("folder.out"), model.reveal)
-            folderButton("tray.and.arrow.down", L10n.text("folder.in"), model.reveal)
-            folderButton("folder", L10n.text("folder.root"), model.openRoot)
-        }
-    }
-
     private var timeline: some View {
         HStack(spacing: 6) {
             ForEach(Array(model.rounds.prefix(3).enumerated()), id: \.offset) { _, round in
@@ -500,96 +442,11 @@ struct CardView: View {
         }
     }
 
-    private func folderButton(_ symbol: String, _ title: String, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: symbol)
-                Text(title).font(.system(size: 10))
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
-    }
-
-    private var primaryTitle: String {
-        switch model.phase {
-        case .copy(let round): return L10n.format("card.copy", round)
-        case .waiting: return L10n.text("card.waiting") + " · " + ElapsedText.phrase(seconds: waitingElapsed, chinese: L10n.chinese)
-        case .reply: return L10n.text("card.reply")
-        case .idle: return L10n.text("card.idle")
-        case .failed: return model.errorLine.isEmpty ? L10n.text("card.failed") : model.errorLine
-        case .empty: return L10n.text("card.empty")
-        }
-    }
-
-    private var waitingElapsed: TimeInterval {
-        if case .waiting(_, let elapsed) = model.phase { return elapsed }
-        return 0
-    }
-
-    private var primaryEnabled: Bool {
-        if case .copy = model.phase { return true }
-        if case .reply = model.phase { return true }
-        if case .empty = model.phase { return true }
-        return false
-    }
-
-    private func primaryAction() {
-        switch model.phase {
-        case .copy: model.copyBundle()
-        case .reply: model.reveal()
-        case .empty: model.addProject()
-        default: break
-        }
-    }
-
     private func reason(_ code: String) -> String {
         switch code {
         case "ambiguous": return L10n.text("pick.ambiguous")
         case "round_mismatch": return L10n.text("pick.round")
         default: return L10n.text("pick.nomatch")
-        }
-    }
-}
-
-private extension CardModel {
-    var phaseToken: String {
-        switch phase {
-        case .copy(let round): return "copy\(round)"
-        case .waiting(let round, _): return "wait\(round)"
-        case .reply(let round): return "reply\(round)"
-        case .idle(let round): return "idle\(round)"
-        case .failed(let message): return "fail\(message)"
-        case .empty: return "empty"
-        }
-    }
-}
-
-enum PasteboardWriter {
-    enum Mode { case bundle, files, opener }
-
-    /// Plain file URLs plus a string item. No file promises, and nothing is sent anywhere.
-    static func write(opener: String, files: [String], mode: Mode) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        let urls: [NSURL] = files.compactMap { path in
-            guard FileManager.default.fileExists(atPath: path) else { return nil }
-            return NSURL(fileURLWithPath: path)
-        }
-        switch mode {
-        case .opener:
-            pasteboard.setString(opener, forType: .string)
-        case .files:
-            pasteboard.writeObjects(urls)
-        case .bundle:
-            var items: [NSPasteboardWriting] = []
-            if !opener.isEmpty {
-                let text = NSPasteboardItem()
-                text.setString(opener, forType: .string)
-                items.append(text)
-            }
-            items.append(contentsOf: urls)
-            if !items.isEmpty { pasteboard.writeObjects(items) }
         }
     }
 }
@@ -695,7 +552,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var welcomePanel: NSPanel?
     private let watcher = FolderWatcher()
     private var debounce: DispatchWorkItem?
-    private var watchCancellable: AnyCancellable?
+    private var watchedPaths = Set<String>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let home = CLIBridge.resolvedHome(
@@ -709,7 +566,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem = item
         if let button = item.button {
-            button.imagePosition = .imageOnly
+            button.imagePosition = .imageLeft
             button.target = self
             button.window?.registerForDraggedTypes([.fileURL])
             let drop = DropView(frame: button.bounds)
@@ -727,16 +584,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let host = NSHostingController(rootView: CardView(model: model))
         popover.contentViewController = host
         applyIcon(.idle)
-        watcher.onChange = { [weak self] in self?.scheduleRefresh() }
-        watchCancellable = model.$projects.sink { [weak self] projects in
-            self?.watch(projects)
+        watcher.onChange = { [weak self] in
+            DispatchQueue.main.async { self?.scheduleRefresh() }
         }
+        model.onWatchPaths = { [weak self] paths in self?.watch(paths) }
         model.presentSettings = { [weak self] in self?.showSettings() }
         model.presentAdd = { [weak self] in self?.showAddProject() }
         model.onFirstRefresh = { [weak self] in
             DispatchQueue.main.async { self?.showWelcomeIfNeeded() }
         }
-        model.refresh()
+        model.refresh(automatic: true)
         if let requested = LaunchRequest.view(from: CommandLine.arguments) {
             present(requested)
         }
@@ -827,7 +684,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func openBar() {
         if popover.isShown { popover.performClose(nil) }
-        model.refresh()
+        model.refresh(automatic: true)
         if barWindow == nil {
             barWindow = BarWindowController(model: model)
         }
@@ -836,7 +693,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func showCard() {
         guard let button = statusItem?.button else { return }
-        model.refresh()
+        model.refresh(automatic: true)
         if !popover.isShown {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         }
@@ -891,31 +748,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func applyIcon(_ style: IconStyle) {
         let appearance = statusItem?.button?.effectiveAppearance ?? NSAppearance.currentDrawing()
         statusItem?.button?.image = StatusIcon.image(style: style, appearance: appearance)
+        statusItem?.button?.title = model.statusTitle
     }
 
-    private func watch(_ projects: [ProjectStatus]) {
-        var paths = projects.flatMap { [$0.inboxDir, $0.outboxDir] }
-        if model.autoExchange {
-            paths.append((NSHomeDirectory() as NSString).appendingPathComponent("Downloads"))
-        }
-        watcher.start(paths)
+    private func watch(_ paths: [String]) {
+        let desired = Set(paths.filter { FileManager.default.fileExists(atPath: $0) })
+        guard desired != watchedPaths else { return }
+        watchedPaths = desired
+        watcher.start(desired.sorted())
     }
 
     private func scheduleRefresh() {
         debounce?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, let bridge = self.model.bridge else { return }
-            if self.model.autoExchange {
-                DispatchQueue.global().async {
-                    _ = try? bridge.run(.downloadsScan(force: false))
-                    DispatchQueue.main.async { self.model.refresh() }
-                }
-            } else {
-                self.model.refresh()
-            }
+            guard let self else { return }
+            self.model.refresh(automatic: self.model.autoExchange)
         }
         debounce = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1, execute: work)
     }
 
     private func ingest(_ paths: [String]) {
@@ -1003,14 +853,22 @@ struct NextStepBanner: View {
     @ObservedObject var model: CardModel
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Text(model.nextLine.isEmpty ? L10n.text("card.idle") : model.nextLine)
-                .font(.system(size: 18, weight: .semibold))
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
-            Button(L10n.text("next.button")) { model.performNext() }
-                .disabled(model.nextFile.isEmpty && model.nextOpener.isEmpty && model.openerText.isEmpty)
-                .buttonStyle(.borderedProminent)
+        VStack(alignment: .leading, spacing: 8) {
+            if let step = model.nextStep {
+                Text(step.titleShort).font(.headline)
+                if step.canAdvance {
+                    Button { model.performNext() } label: {
+                        Text(step.actionLabel).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .help(step.file)
+                } else {
+                    Text(step.actionLabel).foregroundStyle(.secondary)
+                }
+            }
+            if !model.errorLine.isEmpty {
+                Text(model.errorLine).font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 }

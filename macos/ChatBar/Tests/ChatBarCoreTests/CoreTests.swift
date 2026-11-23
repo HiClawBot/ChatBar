@@ -118,25 +118,47 @@ final class CoreTests: XCTestCase {
         let card = URL(string: "chatbar-app://open?view=card")!
         XCTAssertEqual(LaunchRequest.view(from: card), .card)
         XCTAssertNil(LaunchRequest.view(from: URL(string: "https://example.com/?view=bar")!))
-        let waiting = try sample(pack: "presented", inbox: "none", presented: "", packAt: "")
-        let step = NextStepFallback.make(project: waiting) { path in
-            path.hasSuffix("to_chatgpt_R002.md")
-        }
-        XCTAssertEqual(step.action, "wait")
-        XCTAssertTrue(step.file.hasSuffix("to_chatgpt_R002.md"))
-        XCTAssertTrue(step.lineZh.contains("ChatGPT"))
-        let reply = try sample(pack: "ready", inbox: "new", presented: "", packAt: "")
-        XCTAssertEqual(NextStepFallback.make(project: reply, fileExists: { _ in false }).action, "review")
-        XCTAssertEqual(NextStepFallback.make(project: nil).action, "add")
         XCTAssertEqual(IconStyleResolver.style(projects: [], dropHighlighted: false), .idle)
-        let ready = """
-        {"text":"现在：① 点『复制给 g 的话』→ ② 在 g 里 Cmd+V → ③ 把 to_chatgpt_R002.md 拖进去 → ④ 发送","state":"ready","round":2,"file":"to_chatgpt_R002.md","reply_file":"agents-bar_round2_reply.zip"}
-        """
-        let verbatim = try JSONDocuments.next(Data(ready.utf8))
-        XCTAssertEqual(verbatim.action, "ready")
-        XCTAssertEqual(verbatim.file, "to_chatgpt_R002.md")
-        XCTAssertEqual(verbatim.verbatimLine, "现在：① 点『复制给 g 的话』→ ② 在 g 里 Cmd+V → ③ 把 to_chatgpt_R002.md 拖进去 → ④ 发送")
-        XCTAssertEqual(verbatim.line(chinese: false), verbatim.verbatimLine)
+    }
+
+    func testSixFieldNextStepAndCallbacks() throws {
+        let cases: [(String, NextStep.Kind, Bool, Bool)] = [
+            ("no_project", .noProject, false, false),
+            ("need_pack", .needPack, false, false),
+            ("copy", .copy, true, false),
+            ("paste", .paste, true, true),
+            ("drag", .drag, true, true),
+            ("send", .send, true, true),
+            ("wait", .wait, true, true),
+            ("received", .received, true, false),
+            ("result", .result, true, false)
+        ]
+        for (raw, expected, advances, backs) in cases {
+            let json = """
+            {"step":"\(raw)","title_short":"拖文件","action_label":"我已拖入并发送",
+             "project":"项目 甲","round":2,"file":"/临时 目录/to_chatgpt_R002.md"}
+            """
+            let step = try JSONDocuments.next(Data(json.utf8))
+            XCTAssertEqual(step.step, expected)
+            XCTAssertEqual(step.titleShort, "拖文件")
+            XCTAssertEqual(step.actionLabel, "我已拖入并发送")
+            XCTAssertEqual(step.project, "项目 甲")
+            XCTAssertEqual(step.round, 2)
+            XCTAssertEqual(step.file, "/临时 目录/to_chatgpt_R002.md")
+            XCTAssertEqual(step.canAdvance, advances)
+            XCTAssertEqual(step.canGoBack, backs)
+            if advances {
+                let project = "b64:" + Data(step.project.utf8).base64EncodedString()
+                    .replacingOccurrences(of: "=", with: "")
+                XCTAssertEqual(CLIArguments.make(.step(.advance, step)), ["step", "advance", project, "2", raw])
+                if backs {
+                    XCTAssertEqual(CLIArguments.make(.step(.back, step)), ["step", "back", project, "2", raw])
+                }
+            }
+        }
+        XCTAssertEqual(CLIArguments.make(.next(project: nil)), ["next", "--json"])
+        XCTAssertEqual(CLIArguments.make(.next(project: "agents-bar")), ["next", "--json", "--project", "b64:YWdlbnRzLWJhcg"])
+        XCTAssertThrowsError(try JSONDocuments.next(Data(#"{"state":"ready","text":"legacy"}"#.utf8)))
     }
 
     func testCLIProcessDoesNotDeadlockOnPipesOrStdin() throws {

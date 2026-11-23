@@ -357,6 +357,7 @@ cb_ingest_project() {
   if [[ -n "$closed" && -f "${closed}/inbox/NEW.json" ]]; then
     new_json="${closed}/inbox/NEW.json"
   fi
+  cb_state_set "$CB_HANDOFF" menu-receipt "$round unread"
   cb_unlock "$CB_HANDOFF"
   CB_INGEST_LOCKDIR=""
   trap - EXIT
@@ -487,6 +488,16 @@ cb_sweep_settle_skip() {
 }
 
 cb_cmd_sweep() {
+  local auto=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --auto) auto=1; shift ;;
+      *) cb_die "unknown flag: $1" ;;
+    esac
+  done
+  if [[ "$auto" == 1 ]] && ! cb_auto_enabled; then
+    return 0
+  fi
   cb_projects_load
   if [[ "${#CB_P_NAME[@]}" -eq 0 ]]; then
     return 0
@@ -498,6 +509,9 @@ cb_cmd_sweep() {
   pending_files=()
   for i in "${!CB_P_NAME[@]}"; do
     cb_load_project_fields "$i"
+    if [[ "$auto" == 1 ]] && ! cb_auto_enabled "$CB_HANDOFF"; then
+      continue
+    fi
     if cb_lock_held_by_other "$CB_HANDOFF"; then
       cb_note "skip sweep while locked: ${CB_NAME}"
       continue
@@ -528,6 +542,7 @@ cb_cmd_sweep() {
     shopt -u nullglob
   done
   if [[ "${#pending_files[@]}" -eq 0 ]]; then
+    cb_sweep_downloads
     return 0
   fi
   local -a seen
@@ -556,6 +571,7 @@ cb_cmd_sweep() {
     done
     cb_ingest_project "$group_name" "inbox-drop" "${group[@]}"
   done
+  cb_sweep_downloads
 }
 
 cb_cmd_done() {

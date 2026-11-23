@@ -65,7 +65,9 @@ public enum CLICommand: Equatable {
     case projectUse(String)
     case tip
     case sceneLog
-    case next
+    case next(project: String?)
+    case step(NextStep.Direction, NextStep)
+    case sweep(automatic: Bool)
 }
 
 public enum CLIArguments {
@@ -123,9 +125,21 @@ public enum CLIArguments {
             return ["tip"]
         case .sceneLog:
             return ["log"]
-        case .next:
-            return ["next", "--json"]
+        case .next(let project):
+            return ["next", "--json"] + (project.map { ["--project", projectArgument($0)] } ?? [])
+        case .step(let direction, let step):
+            return ["step", direction.rawValue, projectArgument(step.project), String(step.round), step.step.rawValue]
+        case .sweep(let automatic):
+            return automatic ? ["sweep", "--auto"] : ["sweep"]
         }
+    }
+
+    private static func projectArgument(_ project: String) -> String {
+        let encoded = Data(project.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return "b64:" + encoded
     }
 
     private static func configSet(_ patch: ConfigPatch) -> [String] {
@@ -222,6 +236,27 @@ public struct CLIBridge {
             standardInput: standardInput
         )
     }
+
+    public func nextStep(project: String?) throws -> NextStep {
+        let result = try run(.next(project: project))
+        guard result.ok else {
+            let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw NextStepReadError(message.isEmpty ? "chatbar next (\(result.code))" : message)
+        }
+        let step = try JSONDocuments.next(Data(result.stdout.utf8))
+        if let project, step.project != project {
+            throw NextStepReadError("chatbar next returned a different project")
+        }
+        return step
+    }
+
+}
+
+private struct NextStepReadError: LocalizedError {
+    let message: String
+
+    init(_ message: String) { self.message = message }
+    var errorDescription: String? { message }
 }
 
 public enum CLILocator {

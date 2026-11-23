@@ -110,7 +110,7 @@ cb_route_download() {
   if cb_parse_reply_name "$base"; then
     if [[ "${#CB_P_NAME[@]}" -gt 0 ]]; then
       for i in "${!CB_P_NAME[@]}"; do
-        cb_flag_on "${CB_P_AUTO[$i]:-}" || continue
+        cb_auto_enabled "${CB_P_HANDOFF[$i]}" || continue
         slug="$(cb_project_slug "${CB_P_NAME[$i]}")"
         [[ "$slug" == "$CB_DL_SLUG" ]] || continue
         slug_hits=$((slug_hits + 1))
@@ -146,7 +146,7 @@ cb_route_download() {
   bad_names=()
   if [[ "${#CB_P_NAME[@]}" -gt 0 ]]; then
     for i in "${!CB_P_NAME[@]}"; do
-      cb_flag_on "${CB_P_AUTO[$i]:-}" || continue
+      cb_auto_enabled "${CB_P_HANDOFF[$i]}" || continue
       name="${CB_P_NAME[$i]}"
       slug="$(cb_project_slug "$name")"
       if cb_header_round_for_slug "$file" "$slug"; then

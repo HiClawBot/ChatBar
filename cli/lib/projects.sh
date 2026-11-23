@@ -364,6 +364,13 @@ cb_cmd_project_add() {
         cb_projects_save
         cb_unlock "$(cb_home)"
         cb_finish_project_layout "$name"
+        if [[ "$set_auto" == 1 ]]; then
+          if cb_flag_on "$auto_exchange"; then
+            cb_cmd_auto on "b64:$(cb_b64enc "$name")"
+          else
+            cb_cmd_auto off "b64:$(cb_b64enc "$name")"
+          fi
+        fi
         if [[ "$with_templates" == 1 ]]; then
           cb_copy_templates "$repo"
         fi
@@ -394,6 +401,13 @@ cb_cmd_project_add() {
   cb_projects_save
   cb_unlock "$(cb_home)"
   cb_finish_project_layout "$name"
+  if [[ "$set_auto" == 1 ]]; then
+    if cb_flag_on "$auto_exchange"; then
+      cb_cmd_auto on "b64:$(cb_b64enc "$name")"
+    else
+      cb_cmd_auto off "b64:$(cb_b64enc "$name")"
+    fi
+  fi
   if [[ "$with_templates" == 1 ]]; then
     cb_copy_templates "$repo"
   fi
@@ -566,5 +580,5 @@ cb_cmd_project_auto() {
   CB_P_AUTO[$idx]="$value"
   cb_projects_save
   cb_unlock "$(cb_home)"
-  cb_note "auto exchange ${name}: ${value}"
+  cb_cmd_auto "$value" "b64:$(cb_b64enc "$name")"
 }

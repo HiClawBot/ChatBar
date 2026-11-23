@@ -38,6 +38,7 @@ cp -R "$BIN_DIR/Sources/ChatBarApp/Resources/en.lproj" "$APP/Contents/Resources/
 mkdir -p "$APP/Contents/Resources/cli" "$APP/Contents/Resources/templates"
 cp -R "$ROOT/cli/." "$APP/Contents/Resources/cli/"
 cp -R "$ROOT/templates/." "$APP/Contents/Resources/templates/"
+cp "$ROOT/VERSION" "$APP/Contents/Resources/VERSION"
 if [[ -d "$ROOT/hooks" ]]; then
   mkdir -p "$APP/Contents/Resources/hooks"
   cp -R "$ROOT/hooks/." "$APP/Contents/Resources/hooks/"
@@ -56,7 +57,7 @@ codesign --verify --verbose=2 "$APP"
 echo "Smoke test: load localized strings"
 "$APP/Contents/MacOS/ChatBar" --self-test
 
-echo "Smoke test: ready R002 project through the real refresh pipeline"
+echo "Smoke test: packaged native menu, one round"
 FIX="$(mktemp -d)"
 cleanup_fix() { rm -rf "$FIX"; }
 trap cleanup_fix EXIT
@@ -64,64 +65,65 @@ REAL_HOME="$FIX/real-home"
 LINK_HOME="$FIX/handoff-link"
 REPO_FIX="$FIX/agents-bar"
 PROJ="$FIX/proj"
-mkdir -p "$REAL_HOME" "$REPO_FIX"
+CLI="$APP/Contents/Resources/cli/chatbar"
+NATIVE="$APP/Contents/MacOS/ChatBar"
+export CHATBAR_HOME="$LINK_HOME"
+export CHATBAR_DOWNLOADS="$FIX/Downloads 临时"
+export CHATBAR_NO_NOTIFY=1 CHATBAR_NO_OPEN=1 CHATBAR_NO_CLIPBOARD=1 CHATBAR_NO_REWRITE=1 CHATBAR_SWEEP_SETTLE=0
+export CHATBAR_BIN=
+mkdir -p "$REAL_HOME" "$REPO_FIX" "$CHATBAR_DOWNLOADS"
 ln -s "$REAL_HOME" "$LINK_HOME"
 git init -q "$REPO_FIX"
-git -C "$REPO_FIX" config user.email "chatbar@example.com"
-git -C "$REPO_FIX" config user.name "ChatBar"
-printf 'print(1)\n' > "$REPO_FIX/main.py"
-git -C "$REPO_FIX" add main.py
-git -C "$REPO_FIX" commit -q -m init
-CHATBAR_HOME="$LINK_HOME" CHATBAR_NO_NOTIFY=1 CHATBAR_NO_OPEN=1 CHATBAR_NO_REWRITE=1 \
-  "$ROOT/cli/chatbar" project add --name agents-bar --repo "$REPO_FIX" --handoff "$PROJ" >/dev/null
-printf '2\n' > "$PROJ/round"
-printf 'none\n' > "$PROJ/pack-state"
-printf '0\n' > "$PROJ/pack-round"
-printf 'none\n' > "$PROJ/inbox-state"
-printf '0\n' > "$PROJ/inbox-round"
-OUT_DIR="$(CHATBAR_HOME="$LINK_HOME" CHATBAR_NO_NOTIFY=1 CHATBAR_NO_OPEN=1 CHATBAR_NO_REWRITE=1 \
-  "$ROOT/cli/chatbar" folders | sed -n 's/^outbox_dir=//p')"
-if [[ -z "$OUT_DIR" || ! -d "$OUT_DIR" ]]; then
-  echo "fixture outbox missing: ${OUT_DIR}" >&2
-  exit 1
-fi
-printf 'ready round\n' > "$OUT_DIR/to_chatgpt_R002.md"
-if [[ ! -f "$OUT_DIR/给GPT的话.txt" && ! -f "$OUT_DIR/opener.txt" && ! -f "$OUT_DIR/opener.md" ]]; then
-  printf 'opener\n' > "$OUT_DIR/给GPT的话.txt"
-fi
-DUMP_OUT="$FIX/dump.txt"
-DUMP_ERR="$FIX/dump.err"
-CHATBAR_HOME="$LINK_HOME" "$APP/Contents/MacOS/ChatBar" --self-test --dump-state >"$DUMP_OUT" 2>"$DUMP_ERR" &
-DUMP_PID=$!
-DUMP_CODE=1
-DUMP_DONE=0
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  if ! kill -0 "$DUMP_PID" 2>/dev/null; then
-    set +e
-    wait "$DUMP_PID"
-    DUMP_CODE=$?
-    set -e
-    DUMP_DONE=1
-    break
+git -C "$REPO_FIX" -c user.email=chatbar@example.com -c user.name=ChatBar commit --allow-empty -qm init
+
+show_step() {
+  local step="$1" title="$2" label="$3" project="$4" round="$5" file_suffix="${6:-}"
+  local dump
+  dump="$("$NATIVE" --self-test --dump-state)"
+  grep -Fxq "project: $project" <<< "$dump"
+  grep -Fxq "round: $round" <<< "$dump"
+  grep -Fxq "step: $step" <<< "$dump"
+  grep -Fxq "title_short: $title" <<< "$dump"
+  grep -Fxq "action_label: $label" <<< "$dump"
+  if [[ -n "$file_suffix" ]]; then
+    local file
+    file="$(sed -n 's/^file: //p' <<< "$dump")"
+    [[ "$file" == /*"$file_suffix" ]]
   fi
-  sleep 0.5
-done
-if [[ "$DUMP_DONE" -ne 1 ]]; then
-  kill "$DUMP_PID" 2>/dev/null || true
-  wait "$DUMP_PID" 2>/dev/null || true
-  echo "dump-state did not finish within 5s" >&2
-  cat "$DUMP_ERR" >&2 || true
-  exit 1
-fi
-if [[ "$DUMP_CODE" -ne 0 ]]; then
-  echo "dump-state failed ($DUMP_CODE)" >&2
-  cat "$DUMP_OUT" "$DUMP_ERR" >&2 || true
-  exit 1
-fi
-grep -F 'project: agents-bar' "$DUMP_OUT"
-grep -F '现在：①' "$DUMP_OUT"
-grep -F 'to_chatgpt_R002.md' "$DUMP_OUT"
-echo "dump-state ok"
+  printf '%s | %s | %s\n' "$step" "$title" "$label"
+}
+
+show_step no_project 添加项目 还没有项目 "" 0
+"$CLI" project add --name agents-bar --repo "$REPO_FIX" --handoff "$PROJ" >/dev/null
+show_step need_pack 待打包 等待本地助手打包 agents-bar 1
+printf '2\n' > "$PROJ/round"
+"$CLI" pack --quiet
+show_step copy 新任务 '复制给 g 的话' agents-bar 2 /to_chatgpt_R002.md
+"$CLI" step advance agents-bar 2 copy
+show_step paste 粘贴 我已粘贴 agents-bar 2 /to_chatgpt_R002.md
+"$CLI" step back agents-bar 2 paste
+show_step copy 复制 '复制给 g 的话' agents-bar 2 /to_chatgpt_R002.md
+"$CLI" step advance agents-bar 2 copy
+"$CLI" step advance agents-bar 2 paste
+show_step drag 拖文件 '拖文件 · to_chatgpt_R002.md' agents-bar 2 /to_chatgpt_R002.md
+"$CLI" step advance agents-bar 2 drag >/dev/null
+show_step send 拖文件 我已拖入并发送 agents-bar 2 /to_chatgpt_R002.md
+"$CLI" step advance agents-bar 2 send
+show_step wait '等 g' 打开下载文件夹 agents-bar 2 /agents-bar_round2_reply.zip
+
+"$CLI" auto on >/dev/null
+"$CLI" auto on --project agents-bar >/dev/null
+printf 'Native smoke-test reply\n' > "$FIX/reply.md"
+zip -q -j "$CHATBAR_DOWNLOADS/agents-bar_round2_reply.zip" "$FIX/reply.md"
+"$CLI" sweep --auto >/dev/null
+show_step received 新任务 收好了 agents-bar 2 /inbox/NEW.json
+"$CLI" step advance agents-bar 2 received >/dev/null
+show_step received 收好了 收好了 agents-bar 2 /inbox/NEW.json
+printf '{"result":"native smoke-test result"}\n' > "$PROJ/agent-result.json"
+show_step result 新任务 查看结果 agents-bar 3 /agent-result.json
+"$CLI" step advance agents-bar 3 result >/dev/null
+show_step received 收好了 收好了 agents-bar 2 /inbox/NEW.json
+echo "native one-round smoke test ok"
 
 rm -f "$ROOT/dist/ChatBar-macos-unsigned.zip"
 ditto -c -k --keepParent "$APP" "$ROOT/dist/ChatBar-macos-unsigned.zip"

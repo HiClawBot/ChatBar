@@ -53,6 +53,10 @@ source "${CB_LIB}/ingest.sh"
 source "${CB_LIB}/patches.sh"
 # shellcheck source=lib/session.sh
 source "${CB_LIB}/session.sh"
+# shellcheck source=lib/next.sh
+source "${CB_LIB}/next.sh"
+# shellcheck source=lib/auto.sh
+source "${CB_LIB}/auto.sh"
 # shellcheck source=lib/menu.sh
 source "${CB_LIB}/menu.sh"
 # shellcheck source=lib/watch.sh
@@ -67,6 +71,8 @@ source "${CB_LIB}/bundle.sh"
 source "${CB_LIB}/downloads.sh"
 # shellcheck source=lib/tip.sh
 source "${CB_LIB}/tip.sh"
+# shellcheck source=lib/update.sh
+source "${CB_LIB}/update.sh"
 
 cb_help() {
   cat <<'EOF'
@@ -86,7 +92,8 @@ Sending in the planner chat is always your own drag. No web automation.
   chatbar pack [--project NAME | --repo PATH] [--full] [--quiet]
   chatbar open [NAME]              # copy opener, open outbox (left) + inbox (right)
   chatbar reveal [NAME]            # open the two folders, no clipboard change
-  chatbar next [NAME] [--json]    # the one action to do now
+  chatbar next [NAME] [--json]      # the one action to do now
+  chatbar step advance|back NAME ROUND STEP
   chatbar handoff-now [NAME]       # copy opener and select to_chatgpt_R00N.md
   chatbar copy-opener [NAME]
   chatbar ingest [--project NAME] FILE...
@@ -94,6 +101,8 @@ Sending in the planner chat is always your own drag. No web automation.
   chatbar done [--project NAME]
   chatbar open-handoff [NAME]      # parent folder of the outbox and inbox
   chatbar open-root [NAME]         # project workspace (workspace or repo)
+  chatbar open-downloads             # the local Downloads folder
+  chatbar open-home                  # ChatBar home (projects.yaml)
   chatbar archive [NAME] [--topic TEXT] [--sync PATH]
   chatbar compact [--older-than 90d] [--project NAME] [--sync PATH]
   chatbar sync [--to PATH] [--project NAME]
@@ -109,9 +118,10 @@ Sending in the planner chat is always your own drag. No web automation.
   chatbar config get [--json] | set [flags]
   chatbar tip
   chatbar log
-  chatbar next
   chatbar folders [--project NAME]
-  chatbar sweep
+  chatbar sweep [--auto]          # --auto runs only when 自动收发 is on
+  chatbar auto on|off|toggle|status [--project NAME]
+  chatbar update [--check|--rollback]
   chatbar hook install [--repo PATH]
   chatbar watch install|uninstall|run
 
@@ -131,9 +141,13 @@ cb_main() {
     open) cb_cmd_open "$@" ;;
     open-handoff) cb_cmd_open_handoff "$@" ;;
     open-root) cb_cmd_open_root "$@" ;;
+    open-downloads) cb_cmd_open_downloads "$@" ;;
+    open-home) cb_cmd_open_home "$@" ;;
     reveal) cb_cmd_reveal "$@" ;;
     copy-opener) cb_cmd_copy_opener "$@" ;;
     next) cb_cmd_next "$@" ;;
+    step) cb_cmd_step "$@" ;;
+    auto) cb_cmd_auto "$@" ;;
     handoff-now) cb_cmd_handoff_now "$@" ;;
     ingest) cb_cmd_ingest "$@" ;;
     apply) cb_cmd_apply "$@" ;;
@@ -176,6 +190,7 @@ cb_main() {
     folders) cb_cmd_folders "$@" ;;
     done) cb_cmd_done "$@" ;;
     sweep) cb_cmd_sweep "$@" ;;
+    update) cb_cmd_update "$@" ;;
     project)
       local sub="${1:-}"
       if [[ $# -gt 0 ]]; then
@@ -203,7 +218,7 @@ cb_main() {
     watch) cb_cmd_watch "$@" ;;
     swiftbar-menu) cb_cmd_swiftbar_menu "$@" ;;
     help|-h|--help) cb_help ;;
-    version|--version) printf 'chatbar %s\n' "0.2.0" ;;
+    version|--version) printf 'chatbar %s\n' "$(cb_version)" ;;
     *) cb_die "unknown command: ${cmd}. Try: chatbar help" ;;
   esac
 }

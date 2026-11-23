@@ -319,8 +319,11 @@ cb_write_opener_files() {
   local outdir
   outdir="$(cb_dir "$CB_HANDOFF" outbox)"
   mkdir -p "$outdir"
-  printf '%s\n' "$text" | cb_atomic_write "${outdir}/给GPT的话.txt"
-  printf '%s\n' "$text" | cb_atomic_write "${outdir}/opener.txt"
+  local dest
+  for dest in "${outdir}/给GPT的话.txt" "${outdir}/opener.txt"; do
+    if [[ -f "$dest" && "$(cat "$dest")" == "$text" ]]; then continue; fi
+    printf '%s\n' "$text" | cb_atomic_write "$dest"
+  done
   cb_write_copy_command
 }
 

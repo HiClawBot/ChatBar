@@ -206,9 +206,14 @@ unset CHATBAR_MACHINE
 
 "$CHATBAR" project use "下载甲" >/dev/null
 next="$("$CHATBAR" next --json)"
-assert_contains "$next" '"text":' "next step has one instruction"
+assert_contains "$next" '"action_label":' "next step has one instruction"
 assert_contains "$next" 'to_chatgpt_R' "next step names the current round file"
-assert_contains "$next" '"state":' "next step has a state"
+assert_contains "$next" '"step":"copy"' "legacy presented state does not confirm sending"
+native_arg="b64:$(cb_b64enc '下载甲')"
+assert_eq "$("$CHATBAR" next --json --project "$native_arg")" "$next" "native project arguments decode on macOS"
+"$CHATBAR" step advance "$native_arg" 1 copy >/dev/null
+assert_contains "$("$CHATBAR" next --json --project "$native_arg")" '"step":"paste"' "encoded callback advances the project"
+
 
 bash "$ROOT/scripts/lint-iron-rule.sh" "$ROOT"
 

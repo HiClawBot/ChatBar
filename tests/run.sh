@@ -20,12 +20,12 @@ assert_eq() {
   fi
 }
 assert_contains() {
-  if ! printf '%s' "$1" | grep -F -q -- "$2"; then
+  if [[ "$1" != *"$2"* ]]; then
     fail "missing [$2] in [$1] ($3)"
   fi
 }
 assert_not_contains() {
-  if printf '%s' "$1" | grep -F -q -- "$2"; then
+  if [[ "$1" == *"$2"* ]]; then
     fail "unexpected [$2] ($3)"
   fi
 }
@@ -305,25 +305,35 @@ assert_contains "$rshow" "reveal:${WS}" "open workspace"
 
 # menu
 menu="$("$CHATBAR" swiftbar-menu)"
-assert_contains "$menu" "项目甲" "menu project"
-assert_contains "$menu" "Open handoff folder" "menu handoff"
-assert_contains "$menu" "Open workspace root" "menu workspace"
-assert_contains "$menu" "Close round" "menu close"
-assert_contains "$menu" "复制给 GPT 的话" "menu copy opener"
-assert_contains "$menu" "param1=copy-opener" "menu copy action"
-assert_contains "$menu" "更多 / 高级" "add project lives under more"
+assert_contains "$menu" "项目甲 · 第" "menu project is status only"
+assert_contains "$menu" "param1=project param2=use" "project row switches current"
+assert_contains "$menu" "---- 打开交接目录" "per-project folder item is under 更多"
+assert_contains "$menu" "---- 打开项目根目录" "per-project root item is under 更多"
+assert_contains "$menu" "-- 结束本轮" "close is under 更多"
+assert_contains "$menu" "param1=open-handoff" "menu handoff action"
+assert_contains "$menu" "param1=open-root" "menu root action"
+assert_contains "$menu" $'\n更多\n' "more submenu"
+assert_contains "$menu" "-- 打包" "pack is under more"
+assert_contains "$menu" "-- 打开收发窗口" "reveal is under more"
+assert_contains "$menu" "-- 刷新" "refresh is under more"
+assert_contains "$menu" "-- 设置" "settings is under more"
 assert_contains "$menu" "-- 添加项目…" "add project is a submenu item"
 assert_contains "$menu" "param2=pick-folder" "add project uses the folder picker"
+assert_contains "$menu" "自动收发：关" "automatic exchange starts off"
 assert_contains "$menu" "terminal=false" "menu actions stay out of Terminal"
+if printf '%s' "$menu" | grep -q '复制给 GPT 的话\|就做本地这步\|更多 / 高级'; then
+  fail "menu still has a duplicate action"
+fi
 if printf '%s' "$menu" | grep -q 'terminal=true'; then
   fail "menu asked for a terminal"
 fi
-if grep -RIn 'terminal=true' "$ROOT/cli/lib/menu.sh" "$ROOT/swiftbar" >/tmp/terminal-hits 2>/dev/null; then
-  fail "menu source uses terminal=true: $(cat /tmp/terminal-hits)"
+if grep -RIn 'terminal=true' "$ROOT/cli/lib/menu.sh" "$ROOT/swiftbar" > "$TMP/terminal-hits" 2>/dev/null; then
+  fail "menu source uses terminal=true: $(cat "$TMP/terminal-hits")"
 fi
 mkdir -p "$TMP/empty-home"
 empty_menu="$(CHATBAR_HOME="$TMP/empty-home" "$CHATBAR" swiftbar-menu)"
 assert_contains "$empty_menu" "还没有项目" "empty menu has no project"
+assert_contains "$empty_menu" $'\n更多\n' "empty menu uses 更多"
 assert_contains "$empty_menu" "-- 添加项目…" "empty menu still offers the folder picker"
 if printf '%s' "$empty_menu" | grep -q 'terminal=true\|add-interactive'; then
   fail "empty menu still opens a terminal prompt"
@@ -494,9 +504,12 @@ case "$moved" in
   *) fail "previous round was not archived under YYYY-MM/R001: ${moved}" ;;
 esac
 
-# next step: one sentence per state, exact round file
+# W001: drive each microstep through the CLI callback the menu emits.
+saved_home="$CHATBAR_HOME"
+export CHATBAR_HOME="$TMP/w001-home"
+export CHATBAR_DOWNLOADS="$TMP/w001-downloads"
+mkdir -p "$CHATBAR_DOWNLOADS"
 AREPO="$TMP/agents-bar-repo"
-mkdir -p "$AREPO"
 git init -q "$AREPO"
 git -C "$AREPO" config user.email "chatbar-test@example.com"
 git -C "$AREPO" config user.name "ChatBar Test"
@@ -504,89 +517,154 @@ printf 'a\n' > "$AREPO/main.py"
 git -C "$AREPO" add main.py
 git -C "$AREPO" commit -q -m init
 AHANDOFF="$TMP/agents-bar 交接"
-"$CHATBAR" project add --name "agents-bar" --repo "$AREPO" --handoff "$AHANDOFF" >/dev/null
-need="$("$CHATBAR" next agents-bar)"
-assert_eq "$need" "现在：让 agent 跑 chatbar pack，你先不用做事" "next before pack"
-need_json="$("$CHATBAR" next --json agents-bar)"
-assert_contains "$need_json" '"state":"need_pack"' "next json need_pack"
-assert_contains "$need_json" '"text":"现在：让 agent 跑 chatbar pack，你先不用做事"' "next json text"
+as_next() {
+  local output
+  output="$("$CHATBAR" next --json)"
+  assert_contains "$output" "\"step\":\"$1\"" "JSON microstep"
+  assert_contains "$output" "\"title_short\":\"$2\"" "JSON short title"
+  assert_contains "$output" "\"action_label\":\"$3\"" "JSON primary action"
+  assert_contains "$output" "\"project\":\"$4\"" "JSON project"
+  assert_contains "$output" "\"round\":$5" "JSON round"
+  local upcoming
+  upcoming="$("$CHATBAR" swiftbar-menu)"
+  assert_contains "$(printf '%s\n' "$upcoming" | sed -n '3p')" "$3" "first dropdown action"
+  assert_not_contains "$upcoming" "terminal=true" "microstep stays out of Terminal"
+}
+as_next no_project 添加项目 还没有项目 '' 0
+"$CHATBAR" project add --name agents-bar --repo "$AREPO" --handoff "$AHANDOFF" >/dev/null
+as_next need_pack 待打包 等待本地助手打包 agents-bar 1
+"$CHATBAR" pack --auto --repo "$AREPO" --quiet
+as_next need_pack 待打包 等待本地助手打包 agents-bar 1
 printf 'reply-one\n' > "$TMP/ab-r1.md"
-"$CHATBAR" ingest --project "agents-bar" "$TMP/ab-r1.md" >/dev/null
-got="$("$CHATBAR" next agents-bar)"
-assert_eq "$got" "已收到 R001，交给 agent 处理中，你不用做事" "next inbox new"
-got_json="$("$CHATBAR" next --json --project agents-bar)"
-assert_contains "$got_json" '"state":"inbox"' "next json inbox"
-assert_contains "$got_json" '"round":1' "next json inbox round"
-"$CHATBAR" archive --project "agents-bar" >/dev/null
-"$CHATBAR" pack --project "agents-bar" >/dev/null
-assert_file "$AHANDOFF/①发出_拖给ChatGPT/to_chatgpt_R002.md"
-ready="$("$CHATBAR" next agents-bar)"
-assert_eq "$ready" "现在：① 点『复制给 g 的话』→ ② 在 g 里 Cmd+V → ③ 把 to_chatgpt_R002.md 拖进去 → ④ 发送" "next ready names the file"
-ready_json="$("$CHATBAR" next agents-bar --json)"
-assert_contains "$ready_json" '"state":"ready"' "next json ready"
-assert_contains "$ready_json" '"file":"to_chatgpt_R002.md"' "next json exact file"
-assert_contains "$ready_json" '"reply_file":"agents-bar_round2_reply.zip"' "next json download name"
-assert_contains "$(cat "$AHANDOFF/①发出_拖给ChatGPT/to_chatgpt_R002.md")" "agents-bar_round2_reply.zip" "pack asks for that download"
-"$CHATBAR" project use agents-bar >/dev/null
-menu_next="$("$CHATBAR" swiftbar-menu)"
-assert_contains "$menu_next" "现在：① 点『复制给 g 的话』" "menu top line is the action"
-assert_contains "$menu_next" "to_chatgpt_R002.md" "menu names the file"
-assert_contains "$menu_next" "就做本地这步" "menu one local step"
-assert_contains "$menu_next" "param1=handoff-now" "menu local step command"
-local_out="$("$CHATBAR" handoff-now agents-bar)"
-assert_contains "$local_out" "clipboard:" "handoff copies"
-assert_contains "$local_out" "reveal:" "handoff reveals"
-assert_contains "$local_out" "to_chatgpt_R002.md" "handoff selects the round file"
-still="$("$CHATBAR" next agents-bar)"
-assert_eq "$still" "$ready" "local step does not mark the message sent"
-"$CHATBAR" open agents-bar >/dev/null
-wait="$("$CHATBAR" next agents-bar)"
-assert_eq "$wait" "等 g 回复，回完点下载 agents-bar_round2_reply.zip" "next waiting names the download"
-wait_json="$("$CHATBAR" next --json agents-bar)"
-assert_contains "$wait_json" '"state":"waiting"' "next json waiting"
-"$CHATBAR" project use agents-bar >/dev/null
-menu_wait="$("$CHATBAR" swiftbar-menu)"
-assert_contains "$menu_wait" "等 g 回复，回完点下载 agents-bar_round2_reply.zip" "menu waiting line"
-if printf '%s' "$menu_wait" | grep -q '就做本地这步'; then
-  fail "local step shown while waiting"
-fi
+"$CHATBAR" ingest --project agents-bar "$TMP/ab-r1.md" >/dev/null
+as_next received 新任务 收好了 agents-bar 1
+assert_contains "$("$CHATBAR" swiftbar-menu)" "agents-bar · 第1轮 · 收好了" "receipt belongs to its project"
+"$CHATBAR" step advance agents-bar 1 received >/dev/null
+as_next received 收好了 收好了 agents-bar 1
+"$CHATBAR" archive agents-bar >/dev/null
 
-# a hand-written current-round file is ready even when pack-state is still none
+"$CHATBAR" auto on
+"$CHATBAR" pack --auto --repo "$AREPO" --quiet
+as_next received 收好了 收好了 agents-bar 1
+"$CHATBAR" auto on --project agents-bar
+assert_eq "$("$CHATBAR" auto status --project agents-bar)" on "project auto survives CLI calls"
+"$CHATBAR" pack --auto --repo "$AREPO" --quiet
+assert_file "$AHANDOFF/①发出_拖给ChatGPT/to_chatgpt_R002.md"
+as_next copy 新任务 '复制给 g 的话' agents-bar 2
+assert_contains "$("$CHATBAR" next --json)" '/to_chatgpt_R002.md"' "JSON points to exact local pack"
+assert_contains "$(cat "$AHANDOFF/①发出_拖给ChatGPT/to_chatgpt_R002.md")" \
+  "agents-bar_round2_reply.zip" "pack asks for exact reply filename"
+assert_contains "$("$CHATBAR" swiftbar-menu)" "---- 自动收发：开" "project toggle lives in its submenu"
+
+# Duplicate and stale callbacks are harmless. Copy never selects in Finder.
+"$CHATBAR" step advance agents-bar 1 copy
+as_next copy 新任务 '复制给 g 的话' agents-bar 2
+assert_eq "$("$CHATBAR" step advance agents-bar 2 copy)" "" "copy does not invoke Finder"
+"$CHATBAR" step advance agents-bar 2 copy
+as_next paste 粘贴 我已粘贴 agents-bar 2
+assert_contains "$("$CHATBAR" swiftbar-menu)" "-- 上一步" "back is in 更多"
+"$CHATBAR" step back agents-bar 2 paste
+as_next copy 复制 '复制给 g 的话' agents-bar 2
+"$CHATBAR" step advance agents-bar 2 copy
+"$CHATBAR" step advance agents-bar 2 paste
+as_next drag 拖文件 '拖文件 · to_chatgpt_R002.md' agents-bar 2
+assert_contains "$("$CHATBAR" step advance agents-bar 2 drag)" \
+  "/to_chatgpt_R002.md" "Finder reveal selects the exact round file"
+as_next send 拖文件 我已拖入并发送 agents-bar 2
+"$CHATBAR" step back agents-bar 2 send
+as_next drag 拖文件 '拖文件 · to_chatgpt_R002.md' agents-bar 2
+"$CHATBAR" step advance agents-bar 2 drag >/dev/null
+
+zip_file="$CHATBAR_DOWNLOADS/agents-bar_round2_reply.zip"
+printf 'reply from Downloads\n' > "$TMP/ab-r2.md"
+zip -q -j "$zip_file" "$TMP/ab-r2.md"
+touch -t 200001010000 "$zip_file"
+"$CHATBAR" sweep >/dev/null
+as_next send 拖文件 我已拖入并发送 agents-bar 2
+"$CHATBAR" step advance agents-bar 2 send
+as_next wait '等 g' 打开下载文件夹 agents-bar 2
+assert_contains "$("$CHATBAR" next --json)" '/agents-bar_round2_reply.zip"' "JSON points to expected ZIP"
+"$CHATBAR" step back agents-bar 2 wait
+as_next send 拖文件 我已拖入并发送 agents-bar 2
+"$CHATBAR" step advance agents-bar 2 send
+"$CHATBAR" pack --auto --repo "$AREPO" --quiet
+as_next wait '等 g' 打开下载文件夹 agents-bar 2
+"$CHATBAR" sweep >/dev/null
+as_next wait '等 g' 打开下载文件夹 agents-bar 2
+touch "$zip_file"
+"$CHATBAR" auto off
+"$CHATBAR" sweep >/dev/null
+as_next wait '等 g' 打开下载文件夹 agents-bar 2
+"$CHATBAR" auto on
+"$CHATBAR" auto off agents-bar
+"$CHATBAR" sweep >/dev/null
+as_next wait '等 g' 打开下载文件夹 agents-bar 2
+"$CHATBAR" auto on agents-bar
+"$CHATBAR" sweep >/dev/null
+as_next received 新任务 收好了 agents-bar 2
+assert_file "$zip_file"
+assert_contains "$("$CHATBAR" next --json)" '/inbox/NEW.json"' "archived reply stays visible"
+"$CHATBAR" sweep >/dev/null
+"$CHATBAR" step advance agents-bar 2 received >/dev/null
+as_next received 收好了 收好了 agents-bar 2
+"$CHATBAR" pack --auto --repo "$AREPO" --quiet
+as_next copy 新任务 '复制给 g 的话' agents-bar 3
+
+# A hand-written current-round pack is recognized, including when another
+# project gets a notification. Legacy 'presented' alone is no send confirmation.
 HWREPO="$TMP/hand-repo"
 mkdir -p "$HWREPO"
-git init -q "$HWREPO"
-git -C "$HWREPO" config user.email "chatbar-test@example.com"
-git -C "$HWREPO" config user.name "ChatBar Test"
-printf 'a\n' > "$HWREPO/main.py"
-git -C "$HWREPO" add main.py
-git -C "$HWREPO" commit -q -m init
 HWHANDOFF="$TMP/hand 交接"
-"$CHATBAR" project add --name "手写" --repo "$HWREPO" --handoff "$HWHANDOFF" >/dev/null
-assert_eq "$(tr -d '\r\n' < "$HWHANDOFF/pack-state")" "none" "hand project starts unpacked"
+"$CHATBAR" project add --name 手写 --repo "$HWREPO" --handoff "$HWHANDOFF" >/dev/null
 hw_out="$HWHANDOFF/①发出_拖给ChatGPT"
 printf 'wrong round\n' > "$hw_out/to_chatgpt_R002.md"
-hw_wrong="$("$CHATBAR" next 手写)"
-assert_eq "$hw_wrong" "现在：让 agent 跑 chatbar pack，你先不用做事" "other round file is not ready"
+assert_contains "$("$CHATBAR" next --json)" '"step":"need_pack"' "other round pack is ignored"
 rm -f "$hw_out/to_chatgpt_R002.md"
 printf 'hand written round\n' > "$hw_out/to_chatgpt_R001.md"
 assert_file "$hw_out/给GPT的话.txt"
-hw_next="$("$CHATBAR" next 手写)"
-assert_eq "$hw_next" "现在：① 点『复制给 g 的话』→ ② 在 g 里 Cmd+V → ③ 把 to_chatgpt_R001.md 拖进去 → ④ 发送" "hand-written pack is ready"
-hw_json="$("$CHATBAR" next --json 手写)"
-assert_contains "$hw_json" '"state":"ready"' "hand-written json ready"
-assert_eq "$(tr -d '\r\n' < "$HWHANDOFF/pack-state")" "none" "next does not rewrite pack-state"
+as_next copy 新任务 '复制给 g 的话' 手写 1
+printf '{"result":"local result"}\n' > "$HWHANDOFF/agent-result.json"
+as_next result 新任务 查看结果 手写 1
+assert_contains "$("$CHATBAR" step advance 手写 1 result)" "/agent-result.json" "result selection is local"
+as_next copy 新任务 '复制给 g 的话' 手写 1
+"$CHATBAR" open 手写 >/dev/null
+as_next copy 新任务 '复制给 g 的话' 手写 1
+"$CHATBAR" project use agents-bar >/dev/null
+"$CHATBAR" step advance agents-bar 3 copy
+"$CHATBAR" step advance agents-bar 3 paste
 "$CHATBAR" project use 手写 >/dev/null
-hw_menu="$("$CHATBAR" swiftbar-menu)"
-assert_contains "$hw_menu" "to_chatgpt_R001.md" "hand-written menu names the file"
-assert_contains "$hw_menu" "就做本地这步" "hand-written pack shows the local step"
-rm -f "$hw_out/给GPT的话.txt" "$hw_out/opener.txt" "$hw_out/opener.md"
-hw_bare="$("$CHATBAR" next 手写)"
-assert_eq "$hw_bare" "现在：让 agent 跑 chatbar pack，你先不用做事" "pack file without opener is not ready"
-printf 'opener\n' > "$hw_out/给GPT的话.txt"
-printf 'got it\n' > "$TMP/hw-reply.md"
-"$CHATBAR" ingest --project 手写 "$TMP/hw-reply.md" >/dev/null
-hw_in="$("$CHATBAR" next 手写)"
-assert_eq "$hw_in" "已收到 R001，交给 agent 处理中，你不用做事" "ingested reply beats a hand-written pack"
+as_next copy 新任务 '复制给 g 的话' 手写 1
+"$CHATBAR" project use agents-bar >/dev/null
+assert_contains "$("$CHATBAR" next --json)" '"step":"drag"' "project switch preserves its phase"
+multi_menu="$("$CHATBAR" swiftbar-menu)"
+assert_contains "$(printf '%s\n' "$multi_menu" | head -n 1)" '新任务 | sfimage=circle.fill sfcolor=#DC2626' \
+  "another project lights the bar red"
+assert_contains "$(printf '%s\n' "$multi_menu" | grep '^手写 ·')" 'sfimage=circle.fill' "new project has its own dot"
+assert_contains "$(printf '%s\n' "$multi_menu" | sed -n '3p')" '拖文件 · to_chatgpt_R003.md' \
+  "a notification does not switch projects"
+assert_eq "$(printf '%s\n' "$multi_menu" | grep -c 'param1=step param2=advance')" "1" "only one primary callback"
+
+# With automatic exchange off, a ZIP manually deposited in the inbox still advances.
+"$CHATBAR" auto off
+"$CHATBAR" step advance agents-bar 3 drag >/dev/null
+"$CHATBAR" step advance agents-bar 3 send
+reply_dir="$AHANDOFF/②收回_ChatGPT回复拖到这里"
+printf 'manually deposited reply\n' > "$TMP/ab-r3.md"
+zip -q -j "$reply_dir/manually-dropped.zip" "$TMP/ab-r3.md"
+"$CHATBAR" sweep --auto >/dev/null
+as_next wait '等 g' 打开下载文件夹 agents-bar 3
+"$CHATBAR" sweep >/dev/null
+as_next received 新任务 收好了 agents-bar 3
+
+export CHATBAR_HOME="$saved_home"
+unset CHATBAR_DOWNLOADS
+dl="$TMP/下载夹"
+mkdir -p "$dl"
+dl_phys="$(cd -P "$dl" && pwd)"
+dl_out="$(CHATBAR_DOWNLOADS="$dl" "$CHATBAR" open-downloads)"
+assert_contains "$dl_out" "reveal:${dl_phys}" "open downloads is local"
+home_out="$("$CHATBAR" open-home)"
+assert_contains "$home_out" "reveal:" "open home is local"
 
 # folder picker names the project after the chosen folder and does not prompt
 PICK="$TMP/picked 项目"
@@ -600,6 +678,79 @@ if grep -n 'add-interactive' "$ROOT/cli/chatbar" "$ROOT/cli/lib/projects.sh" "$R
   fail "interactive terminal prompt remains: $(cat /tmp/interactive-hits)"
 fi
 assert_contains "$(cat "$ROOT/cli/lib/projects.sh")" "choose folder" "picker is the macOS folder dialog"
+
+# Source updates use a mocked public endpoint and an isolated install root.
+UPDATE_ROOT="$TMP/ChatBar source"
+FIXTURE="$TMP/update-fixture"
+mkdir -p "$UPDATE_ROOT" "$FIXTURE/bin" "$FIXTURE/source/ChatBar-release"
+cp -R "$ROOT/cli" "$ROOT/swiftbar" "$ROOT/VERSION" "$UPDATE_ROOT/"
+cp -R "$ROOT/cli" "$ROOT/swiftbar" "$FIXTURE/source/ChatBar-release/"
+printf '0.2.1\n' > "$FIXTURE/source/ChatBar-release/VERSION"
+tar -czf "$FIXTURE/source.tar.gz" -C "$FIXTURE/source" ChatBar-release
+release_commit=0123456789abcdef0123456789abcdef01234567
+printf '%s %s\n' "$(cb_sha256 "$FIXTURE/source.tar.gz")" "$release_commit" > "$FIXTURE/checksum"
+cat > "$FIXTURE/bin/curl" <<'MOCK'
+#!/bin/bash
+set -euo pipefail
+url="${!#}"
+printf '%s\n' "$url" >> "$CHATBAR_TEST_UPDATE_FIXTURE/requests"
+case "$url" in
+  https://github.com/HiClawBot/ChatBar/releases/latest)
+    printf '%s' '200 https://github.com/HiClawBot/ChatBar/releases/tag/v0.2.1'
+    ;;
+  https://github.com/HiClawBot/ChatBar/releases/download/v0.2.1/chatbar-source.sha256)
+    cat "$CHATBAR_TEST_UPDATE_FIXTURE/checksum"
+    ;;
+  https://codeload.github.com/HiClawBot/ChatBar/tar.gz/0123456789abcdef0123456789abcdef01234567)
+    while [[ "$1" != --output ]]; do shift; done
+    cp "$CHATBAR_TEST_UPDATE_FIXTURE/source.tar.gz" "$2"
+    ;;
+  *) exit 9 ;;
+esac
+MOCK
+chmod +x "$FIXTURE/bin/curl"
+saved_path="$PATH"
+export PATH="$FIXTURE/bin:$PATH"
+export CHATBAR_TEST_UPDATE_FIXTURE="$FIXTURE"
+export CHATBAR_HOME="$TMP/update-home"
+UCLI="$FIXTURE/bin/chatbar"
+ln -s "$UPDATE_ROOT/cli/chatbar" "$UCLI"
+mkdir -p "$CHATBAR_HOME"
+printf 'handoff sentinel\n' > "$CHATBAR_HOME/sentinel"
+"$UCLI" update --background
+"$UCLI" update --background
+assert_eq "$(wc -l < "$FIXTURE/requests" | tr -d ' ')" "1" "background check runs once daily"
+assert_contains "$("$UCLI" swiftbar-menu)" '有更新 |' "background only makes the update available"
+assert_eq "$("$UCLI" version)" "chatbar $(cat "$ROOT/VERSION")" "check does not install"
+assert_contains "$("$UCLI" update --check)" "有更新 v0.2.1" "manual check bypasses the daily cache"
+good_checksum="$(cat "$FIXTURE/checksum")"
+printf '%064d %s\n' 0 "$release_commit" > "$FIXTURE/checksum"
+if "$UCLI" update > "$FIXTURE/bad-update.log" 2>&1; then
+  fail "checksum mismatch installed a release"
+fi
+assert_contains "$(cat "$FIXTURE/bad-update.log")" "SHA-256 校验失败" "checksum mismatch is reported"
+assert_eq "$("$UCLI" version)" "chatbar $(cat "$ROOT/VERSION")" "failed verification preserves active source"
+printf '%s\n' "$good_checksum" > "$FIXTURE/checksum"
+
+mkdir "$UPDATE_ROOT/local-handoff"
+if CHATBAR_HOME="$UPDATE_ROOT/local-handoff" "$UCLI" update > "$FIXTURE/inside.log" 2>&1; then
+  fail "updater moved an internal handoff directory"
+fi
+assert_contains "$(cat "$FIXTURE/inside.log")" "安装目录内有交接目录" "update protects internal data"
+rmdir "$UPDATE_ROOT/local-handoff"
+
+"$UCLI" update > "$FIXTURE/install.log"
+assert_eq "$("$UCLI" version)" "chatbar 0.2.1" "verified update switches the linked CLI"
+assert_not_contains "$("$UCLI" swiftbar-menu)" '有更新 |' "installed version clears availability"
+assert_contains "$(cat "$FIXTURE/install.log")" ".prev-" "old source is backed up"
+assert_contains "$("$UCLI" swiftbar-menu)" "-- 还原上一版" "rollback is under 更多"
+assert_eq "$(find "$TMP" -maxdepth 1 -type d -name 'ChatBar source.prev-*' | wc -l | tr -d ' ')" "1" \
+  "one backup is retained"
+"$UCLI" update --rollback > "$FIXTURE/rollback.log"
+assert_eq "$("$UCLI" version)" "chatbar $(cat "$ROOT/VERSION")" "rollback restores the previous release"
+assert_eq "$(cat "$CHATBAR_HOME/sentinel")" "handoff sentinel" "update and rollback preserve handoff data"
+export PATH="$saved_path" CHATBAR_HOME="$saved_home"
+unset CHATBAR_TEST_UPDATE_FIXTURE
 
 # safety: no chat UI automation
 safety_paths=()

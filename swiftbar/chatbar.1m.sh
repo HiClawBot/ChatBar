@@ -1,6 +1,6 @@
 #!/bin/bash
 # <xbar.title>ChatBar</xbar.title>
-# <xbar.version>v0.1.0</xbar.version>
+# <xbar.version>v0.2.0</xbar.version>
 # <xbar.author>HiClawBot</xbar.author>
 # <xbar.author.github>HiClawBot</xbar.author.github>
 # <xbar.desc>Drag files between a planner chat and local coding agents. No web automation.</xbar.desc>
@@ -35,15 +35,18 @@ if [[ -x "${PLUGIN_DIR}/../cli/chatbar" ]]; then
 elif command -v chatbar >/dev/null 2>&1; then
   CHATBAR="$(command -v chatbar)"
 else
-  printf '%s\n' 'ChatBar | color=#B91C1C'
+  printf '%s\n' '未安装 | sfimage=exclamationmark.circle sfcolor=#B91C1C dropdown=false'
   printf '%s\n' '---'
-  printf '%s\n' '找不到 chatbar。Run scripts/install.sh'
+  printf '%s\n' '找不到 ChatBar'
   exit 0
 fi
 
 if [[ "${LAUNCHED_FROM_DROP_ACTION:-}" == "TRUE" || -n "${DROPPED_FILES:-}" || -n "${DROPPED_URL:-}" ]]; then
-  "$CHATBAR" ingest-drop || true
+  "$CHATBAR" ingest-drop >/dev/null || true
 fi
-"$CHATBAR" sweep || true
+"$CHATBAR" sweep --auto >/dev/null || true
+if [[ -z "${CHATBAR_NO_UPDATE:-}" ]]; then
+  ( "$CHATBAR" update --check-if-due >/dev/null 2>&1 & )
+fi
 "$CHATBAR" swiftbar-menu
 fi

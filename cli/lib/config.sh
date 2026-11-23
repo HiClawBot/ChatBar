@@ -28,6 +28,12 @@ cb_flag_on() {
 
 # Master switch for automatic receive and copy. Empty means off.
 cb_auto_exchange_enabled() {
+  local home
+  home="$(cb_home)"
+  if [[ -f "$home/auto" ]]; then
+    [[ "$(cb_state_get "$home" auto off)" == on ]]
+    return
+  fi
   cb_load_global_config
   if cb_flag_on "${CB_CFG_AUTO_EXCHANGE:-}"; then
     return 0
@@ -191,7 +197,7 @@ cb_cmd_config_set() {
   local watch="${CB_CFG_DOWNLOADS_WATCH:-}" copy="${CB_CFG_AUTO_COPY:-}" exchange="${CB_CFG_AUTO_EXCHANGE:-}"
   local tip_minutes="${CB_CFG_TIP_MINUTES:-}" tip_cost="${CB_CFG_TIP_COST:-}"
   local dirs="${CB_CFG_DOWNLOAD_DIRS:-}" globs="${CB_CFG_DOWNLOAD_GLOBS:-}"
-  local set_dirs=0 set_globs=0 new_dirs="" new_globs=""
+  local set_dirs=0 set_globs=0 set_exchange=0 new_dirs="" new_globs=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --chat-name) chat="${2:-}"; shift 2 ;;
@@ -199,7 +205,7 @@ cb_cmd_config_set() {
       --inbox-name) inbox="${2:-}"; shift 2 ;;
       --archive-name) archive="${2:-}"; shift 2 ;;
       --log-name) logn="${2:-}"; shift 2 ;;
-      --downloads-watch|--auto-exchange) exchange="${2:-}"; watch="${2:-}"; shift 2 ;;
+      --downloads-watch|--auto-exchange) exchange="${2:-}"; watch="${2:-}"; set_exchange=1; shift 2 ;;
       --auto-copy) copy="${2:-}"; shift 2 ;;
       --tip-minutes) tip_minutes="${2:-}"; shift 2 ;;
       --tip-cost) tip_cost="${2:-}"; shift 2 ;;
@@ -239,5 +245,8 @@ cb_cmd_config_set() {
     CB_CFG_DOWNLOAD_GLOBS="$globs"
   fi
   cb_config_write
+  if [[ "$set_exchange" == 1 ]]; then
+    if cb_flag_on "$exchange"; then cb_cmd_auto on; else cb_cmd_auto off; fi
+  fi
   cb_note "updated $(cb_home)/config.yaml"
 }

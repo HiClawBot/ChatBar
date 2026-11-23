@@ -57,10 +57,10 @@ cb_say() {
     en:swiftbar_missing) printf '%s\n' 'SwiftBar is not installed, so the menu item will not appear yet.' ;;
     zh:unknown) printf '不认识的参数：%s\n' "$2" ;;
     en:unknown) printf 'Unknown argument: %s\n' "$2" ;;
-    zh:ready) printf '%s\n' 'ChatBar 已就绪，看菜单栏右上角的 ⇄ ChatBar。' ;;
-    en:ready) printf '%s\n' 'ChatBar is ready. Look for ⇄ ChatBar at the right of the menu bar.' ;;
-    zh:ready_note) printf '%s\n' 'ChatBar 已就绪，看菜单栏右上角的 ⇄ ChatBar' ;;
-    en:ready_note) printf '%s\n' 'ChatBar is ready. Look for ⇄ ChatBar at the right of the menu bar.' ;;
+    zh:ready) printf '%s\n' 'ChatBar 已就绪，请查看菜单栏右上角。' ;;
+    en:ready) printf '%s\n' 'ChatBar is ready. Check the right of the menu bar.' ;;
+    zh:ready_note) printf '%s\n' 'ChatBar 已就绪，请查看菜单栏右上角' ;;
+    en:ready_note) printf '%s\n' 'ChatBar is ready. Check the right of the menu bar.' ;;
     *) printf '%s\n' "$key" ;;
   esac
 }

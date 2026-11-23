@@ -46,3 +46,4 @@
 "menu.add" = "Add Project…";
 "add.choose" = "Add";
 "add.message" = "Choose the code folder. The project name is the folder name.";
+"menu.back" = "Back";

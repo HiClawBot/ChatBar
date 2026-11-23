@@ -28,6 +28,7 @@ public struct ProjectStatus: Equatable, Decodable {
     public var menuState: String
     public var error: String
     public var projectAuto: Bool
+    public var newTask: Bool?
     public var slug: String
 
     enum CodingKeys: String, CodingKey {
@@ -43,6 +44,7 @@ public struct ProjectStatus: Equatable, Decodable {
         case roundsFile = "rounds_file"
         case menuState = "menu_state"
         case projectAuto = "project_auto"
+        case newTask = "new_task"
     }
 
     public func elapsed(now: Date) -> TimeInterval {
@@ -55,11 +57,13 @@ public struct ProjectStatus: Equatable, Decodable {
 public struct StatusDocument: Equatable, Decodable {
     public var home: String
     public var autoExchange: Bool
+    public var downloadDir: String?
     public var projects: [ProjectStatus]
 
     enum CodingKeys: String, CodingKey {
         case home, projects
         case autoExchange = "auto_exchange"
+        case downloadDir = "download_dir"
     }
 }
 
@@ -218,7 +222,7 @@ public struct SceneLog: Equatable, Decodable {
 public enum IconStyleResolver {
     public static func style(projects: [ProjectStatus], dropHighlighted: Bool) -> IconStyle {
         if dropHighlighted { return .highlighted }
-        if projects.contains(where: { $0.inboxState == "new" }) { return .reply }
+        if projects.contains(where: { $0.newTask ?? ($0.inboxState == "new") }) { return .reply }
         if projects.contains(where: { $0.packState == "ready" || $0.packState == "presented" }) {
             return .ready
         }
