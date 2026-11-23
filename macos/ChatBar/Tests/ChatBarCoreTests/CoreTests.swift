@@ -92,9 +92,19 @@ final class CoreTests: XCTestCase {
             ["downloads-assign", "--file", "/下载/我的 文件.md", "--project", "项目 甲"]
         )
         let bridge = CLIBridge(executable: "/opt/chatbar", home: "/交接 目录", runner: FakeRunner())
-        XCTAssertEqual(bridge.environmentOverlay()["CHATBAR_HOME"], "/交接 目录")
-        XCTAssertEqual(bridge.environmentOverlay()["CHATBAR_NO_NOTIFY"], "1")
-        XCTAssertNil(bridge.environmentOverlay()["CHATBAR_NO_CLIPBOARD"])
+        let overlay = bridge.environmentOverlay()
+        XCTAssertEqual(overlay["CHATBAR_HOME"], "/交接 目录")
+        XCTAssertEqual(overlay["CHATBAR_NO_NOTIFY"], "1")
+        XCTAssertEqual(overlay["CHATBAR_NO_REWRITE"], "1")
+        XCTAssertTrue(overlay["PATH"]?.contains("/opt/homebrew/bin") == true)
+        XCTAssertTrue(overlay["PATH"]?.contains("/usr/bin") == true)
+        XCTAssertNotNil(overlay["HOME"])
+        XCTAssertNil(overlay["CHATBAR_NO_CLIPBOARD"])
+        XCTAssertEqual(
+            CLIBridge.resolvedHome(defaults: nil, environment: ["CHATBAR_HOME": "/tmp/handoff-link"]),
+            "/tmp/handoff-link"
+        )
+        XCTAssertTrue(CLIBridge.resolvedHome(defaults: "  ", environment: [:]).hasSuffix("/handoff"))
         XCTAssertEqual(HotKeySpec.default.display, "⌥⌘C")
         XCTAssertEqual(StatusClickPreference.resolve(nil), .bar)
         XCTAssertTrue(StatusClickPreference.resolve("bar").leftOpensBar)
@@ -119,6 +129,63 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(NextStepFallback.make(project: reply, fileExists: { _ in false }).action, "review")
         XCTAssertEqual(NextStepFallback.make(project: nil).action, "add")
         XCTAssertEqual(IconStyleResolver.style(projects: [], dropHighlighted: false), .idle)
+        let ready = """
+        {"text":"现在：① 点『复制给 g 的话』→ ② 在 g 里 Cmd+V → ③ 把 to_chatgpt_R002.md 拖进去 → ④ 发送","state":"ready","round":2,"file":"to_chatgpt_R002.md","reply_file":"agents-bar_round2_reply.zip"}
+        """
+        let verbatim = try JSONDocuments.next(Data(ready.utf8))
+        XCTAssertEqual(verbatim.action, "ready")
+        XCTAssertEqual(verbatim.file, "to_chatgpt_R002.md")
+        XCTAssertEqual(verbatim.verbatimLine, "现在：① 点『复制给 g 的话』→ ② 在 g 里 Cmd+V → ③ 把 to_chatgpt_R002.md 拖进去 → ④ 发送")
+        XCTAssertEqual(verbatim.line(chinese: false), verbatim.verbatimLine)
+    }
+
+    func testCLIProcessDoesNotDeadlockOnPipesOrStdin() throws {
+        let runner = ProcessCommandRunner(timeout: 5)
+        let echo = try runner.run(executable: "/bin/bash", arguments: ["-c", "printf 'out'; printf 'err' >&2"], environment: [:], standardInput: nil)
+        XCTAssertEqual(echo.code, 0)
+        XCTAssertEqual(echo.stdout, "out")
+        XCTAssertEqual(echo.stderr, "err")
+
+        let stdin = try runner.run(
+            executable: "/bin/bash",
+            arguments: ["-c", "read line; printf 'done:%s' \"$line\""],
+            environment: ["CHATBAR_HOME": "~/handoff"],
+            standardInput: nil
+        )
+        XCTAssertEqual(stdin.code, 0)
+        XCTAssertEqual(stdin.stdout, "done:")
+        let merged = ProcessCommandRunner.mergedEnvironment(overlay: ["CHATBAR_HOME": "~/handoff"])
+        XCTAssertFalse(merged["CHATBAR_HOME"]?.hasPrefix("~") == true)
+        XCTAssertTrue(merged["PATH"]?.contains("/opt/homebrew/bin") == true)
+        XCTAssertEqual(merged["CHATBAR_NO_REWRITE"], "1")
+
+        let fed = try runner.run(
+            executable: "/bin/bash",
+            arguments: ["-c", "read line; printf '%s' \"$line\""],
+            environment: [:],
+            standardInput: "你好\n"
+        )
+        XCTAssertEqual(fed.stdout, "你好")
+
+        let big = try runner.run(
+            executable: "/bin/bash",
+            arguments: ["-c", "dd if=/dev/zero bs=1024 count=256 2>/dev/null | base64"],
+            environment: [:],
+            standardInput: nil
+        )
+        XCTAssertEqual(big.code, 0)
+        XCTAssertGreaterThan(big.stdout.count, 60_000)
+
+        let started = Date()
+        let hung = try ProcessCommandRunner(timeout: 0.4).run(
+            executable: "/bin/sleep",
+            arguments: ["30"],
+            environment: [:],
+            standardInput: nil
+        )
+        XCTAssertEqual(hung.code, 124)
+        XCTAssertTrue(hung.stderr.contains("timed out"))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 3)
     }
 
     private func percent(_ value: String) -> String {

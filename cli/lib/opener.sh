@@ -293,8 +293,11 @@ cb_editable_opener() {
 cb_write_copy_command() {
   local outdir dest bin
   outdir="$(cb_dir "$CB_HANDOFF" outbox)"
-  mkdir -p "$outdir"
   dest="${outdir}/复制开场白.command"
+  if [[ -n "${CHATBAR_NO_REWRITE:-}" || -e "$dest" ]]; then
+    return 0
+  fi
+  mkdir -p "$outdir"
   bin="$(cb_chatbar_bin)"
   {
     printf '%s\n' '#!/bin/bash'

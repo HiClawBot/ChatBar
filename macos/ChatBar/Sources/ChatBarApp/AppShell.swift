@@ -7,50 +7,6 @@ import UserNotifications
 
 // Local files, the pasteboard, and Finder only. This process never controls a chat app.
 
-final class ProcessCommandRunner: CommandRunning {
-    func run(executable: String, arguments: [String], environment: [String: String], standardInput: String?) throws -> CLIResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        var env = ProcessInfo.processInfo.environment
-        environment.forEach { env[$0.key] = $0.value }
-        process.environment = env
-        let output = Pipe()
-        let error = Pipe()
-        process.standardOutput = output
-        process.standardError = error
-        if let standardInput {
-            let input = Pipe()
-            process.standardInput = input
-            try process.run()
-            input.fileHandleForWriting.write(Data(standardInput.utf8))
-            try? input.fileHandleForWriting.close()
-        } else {
-            try process.run()
-        }
-        let group = DispatchGroup()
-        var outData = Data()
-        var errData = Data()
-        group.enter()
-        DispatchQueue.global().async {
-            outData = output.fileHandleForReading.readDataToEndOfFile()
-            group.leave()
-        }
-        group.enter()
-        DispatchQueue.global().async {
-            errData = error.fileHandleForReading.readDataToEndOfFile()
-            group.leave()
-        }
-        group.wait()
-        process.waitUntilExit()
-        return CLIResult(
-            code: process.terminationStatus,
-            stdout: String(data: outData, encoding: .utf8) ?? "",
-            stderr: String(data: errData, encoding: .utf8) ?? ""
-        )
-    }
-}
-
 final class CardModel: ObservableObject {
     @Published var projectName = ""
     @Published var round = 1
@@ -77,19 +33,26 @@ final class CardModel: ObservableObject {
     var onIcon: (IconStyle) -> Void = { _ in }
     var presentSettings: () -> Void = {}
     var presentAdd: () -> Void = {}
+    var onFirstRefresh: (() -> Void)?
     private var loadedOpener = ""
     private var saveItem: DispatchWorkItem?
     private var knownReplies = Set<String>()
     private var knownPending = Set<String>()
     private var primed = false
     private var lastPackStamp = ""
+    private var reportedFirstRefresh = false
 
     var preview: String { OpenerPreview.line(from: openerText) }
 
     func refresh() {
         guard let bridge else { return }
         DispatchQueue.global(qos: .userInitiated).async {
-            let statusResult = try? bridge.run(.status)
+            let statusResult: CLIResult
+            do {
+                statusResult = try bridge.run(.status)
+            } catch {
+                statusResult = CLIResult(code: 1, stdout: "", stderr: error.localizedDescription)
+            }
             let pendingResult = try? bridge.run(.downloadsPending)
             DispatchQueue.main.async {
                 self.apply(status: statusResult, pending: pendingResult)
@@ -238,7 +201,15 @@ final class CardModel: ObservableObject {
     }
 
     private func apply(status: CLIResult?, pending pendingResult: CLIResult?) {
-        guard let status, status.ok, let doc = try? JSONDocuments.status(Data(status.stdout.utf8)) else { return }
+        defer { noteFirstRefresh() }
+        guard let status else {
+            showCommandError("chatbar 没有返回")
+            return
+        }
+        guard status.ok, let doc = try? JSONDocuments.status(Data(status.stdout.utf8)) else {
+            showCommandError(Self.failureLine(status, fallback: "chatbar status 失败 (\(status.code))"))
+            return
+        }
         projects = doc.projects
         autoExchange = doc.autoExchange
         let current = doc.projects.first { $0.current } ?? doc.projects.first
@@ -278,8 +249,39 @@ final class CardModel: ObservableObject {
         loadNext(project: current)
     }
 
+    private func noteFirstRefresh() {
+        guard !reportedFirstRefresh else { return }
+        reportedFirstRefresh = true
+        onFirstRefresh?()
+    }
+
+    private func showCommandError(_ message: String) {
+        errorLine = message
+        nextLine = message
+    }
+
+    private static func failureLine(_ result: CLIResult, fallback: String) -> String {
+        let line = result.stderr
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .last { !$0.isEmpty }
+        if let line, !line.isEmpty { return String(line) }
+        return fallback
+    }
+
     func performNext() {
-        let opener = nextOpener.isEmpty ? openerText : nextOpener
+        var opener = nextOpener.isEmpty ? openerText : nextOpener
+        if opener.isEmpty, !nextFile.isEmpty {
+            let dir = (nextFile as NSString).deletingLastPathComponent
+            for name in ["opener.md", "给GPT的话.txt", "opener.txt"] {
+                let path = (dir as NSString).appendingPathComponent(name)
+                if let text = try? String(contentsOfFile: path, encoding: .utf8),
+                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    opener = text
+                    break
+                }
+            }
+        }
         PasteboardWriter.write(opener: opener, files: [], mode: .opener)
         guard !nextFile.isEmpty, FileManager.default.fileExists(atPath: nextFile) else { return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: nextFile)])
@@ -287,21 +289,33 @@ final class CardModel: ObservableObject {
 
     private func loadNext(project: ProjectStatus?) {
         guard let bridge else {
-            applyNext(NextStepFallback.make(project: project))
+            applyNext(NextStepFallback.make(project: project), outbox: project?.outboxDir ?? "")
             return
         }
+        let outbox = project?.outboxDir ?? ""
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = try? bridge.run(.next)
-            if let result, result.ok, let step = try? JSONDocuments.next(Data(result.stdout.utf8)) {
-                DispatchQueue.main.async { self.applyNext(step, outbox: project?.outboxDir ?? "") }
-            } else {
-                DispatchQueue.main.async { self.applyNext(NextStepFallback.make(project: project), outbox: project?.outboxDir ?? "") }
+            do {
+                let result = try bridge.run(.next)
+                if result.ok, let step = try? JSONDocuments.next(Data(result.stdout.utf8)) {
+                    DispatchQueue.main.async { self.applyNext(step, outbox: outbox) }
+                } else {
+                    let message = Self.failureLine(result, fallback: "")
+                    DispatchQueue.main.async {
+                        if message.isEmpty {
+                            self.applyNext(NextStepFallback.make(project: project), outbox: outbox)
+                        } else {
+                            self.showCommandError(message)
+                        }
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async { self.showCommandError(error.localizedDescription) }
             }
         }
     }
 
     private func applyNext(_ step: NextStep, outbox: String) {
-        nextLine = step.line(chinese: L10n.chinese)
+        nextLine = step.verbatimLine
         if step.file.hasPrefix("/") {
             nextFile = step.file
         } else if !step.file.isEmpty, !outbox.isEmpty {
@@ -672,21 +686,24 @@ final class FolderWatcher {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let model = CardModel()
     private var statusItem: NSStatusItem?
     private let popover = NSPopover()
     private var barWindow: BarWindowController?
     private var settingsWindow: NSWindow?
+    private var welcomePanel: NSPanel?
     private let watcher = FolderWatcher()
     private var debounce: DispatchWorkItem?
     private var watchCancellable: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let home = UserDefaults.standard.string(forKey: "handoffHome").flatMap { $0.isEmpty ? nil : $0 }
-            ?? (NSHomeDirectory() as NSString).appendingPathComponent("handoff")
+        let home = CLIBridge.resolvedHome(
+            defaults: UserDefaults.standard.string(forKey: "handoffHome"),
+            environment: ProcessInfo.processInfo.environment
+        )
         let executable = CLILocator.executable() ?? "/usr/bin/false"
-        model.bridge = CLIBridge(executable: executable, home: (home as NSString).expandingTildeInPath, runner: ProcessCommandRunner())
+        model.bridge = CLIBridge(executable: executable, home: home, runner: ProcessCommandRunner())
         model.onIcon = { [weak self] style in self?.applyIcon(style) }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -716,17 +733,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         model.presentSettings = { [weak self] in self?.showSettings() }
         model.presentAdd = { [weak self] in self?.showAddProject() }
+        model.onFirstRefresh = { [weak self] in
+            DispatchQueue.main.async { self?.showWelcomeIfNeeded() }
+        }
         model.refresh()
         if let requested = LaunchRequest.view(from: CommandLine.arguments) {
             present(requested)
-        } else if !UserDefaults.standard.bool(forKey: "welcomeShown") {
-            let alert = NSAlert()
-            alert.messageText = L10n.text("welcome.title")
-            alert.informativeText = L10n.text("welcome.body")
-            alert.addButton(withTitle: L10n.text("welcome.ok"))
-            alert.runModal()
-            UserDefaults.standard.set(true, forKey: "welcomeShown")
         }
+    }
+
+    /// Non-modal. The first refresh has already applied, so this does not block the CLI.
+    private func showWelcomeIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: "welcomeShown") else { return }
+        guard welcomePanel == nil else { return }
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 180),
+            styleMask: [.titled, .closable, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = L10n.text("welcome.title")
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.delegate = self
+        let body = NSTextField(wrappingLabelWithString: L10n.text("welcome.body"))
+        body.translatesAutoresizingMaskIntoConstraints = false
+        let button = NSButton(title: L10n.text("welcome.ok"), target: self, action: #selector(dismissWelcome(_:)))
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.bezelStyle = .rounded
+        button.keyEquivalent = "\r"
+        let content = NSView()
+        content.addSubview(body)
+        content.addSubview(button)
+        panel.contentView = content
+        NSLayoutConstraint.activate([
+            body.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
+            body.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
+            body.topAnchor.constraint(equalTo: content.topAnchor, constant: 16),
+            button.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
+            button.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -16),
+            button.topAnchor.constraint(equalTo: body.bottomAnchor, constant: 16)
+        ])
+        panel.center()
+        welcomePanel = panel
+        panel.makeKeyAndOrderFront(nil)
+        if #available(macOS 14.0, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    @objc private func dismissWelcome(_ sender: Any?) {
+        welcomePanel?.close()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === welcomePanel else { return }
+        UserDefaults.standard.set(true, forKey: "welcomeShown")
+        welcomePanel = nil
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -917,7 +984,12 @@ final class DropView: NSView {
 enum ChatBarMain {
     static func main() {
         if CommandLine.arguments.contains("--self-test") {
-            exit(L10n.selfTest())
+            let l10n = L10n.selfTest()
+            if CommandLine.arguments.contains("--dump-state") {
+                let dumped = HeadlessRefresh.dumpState()
+                exit(l10n == 0 ? dumped : l10n)
+            }
+            exit(l10n)
         }
         let app = NSApplication.shared
         let delegate = AppDelegate()

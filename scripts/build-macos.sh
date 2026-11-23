@@ -56,6 +56,73 @@ codesign --verify --verbose=2 "$APP"
 echo "Smoke test: load localized strings"
 "$APP/Contents/MacOS/ChatBar" --self-test
 
+echo "Smoke test: ready R002 project through the real refresh pipeline"
+FIX="$(mktemp -d)"
+cleanup_fix() { rm -rf "$FIX"; }
+trap cleanup_fix EXIT
+REAL_HOME="$FIX/real-home"
+LINK_HOME="$FIX/handoff-link"
+REPO_FIX="$FIX/agents-bar"
+PROJ="$FIX/proj"
+mkdir -p "$REAL_HOME" "$REPO_FIX"
+ln -s "$REAL_HOME" "$LINK_HOME"
+git init -q "$REPO_FIX"
+git -C "$REPO_FIX" config user.email "chatbar@example.com"
+git -C "$REPO_FIX" config user.name "ChatBar"
+printf 'print(1)\n' > "$REPO_FIX/main.py"
+git -C "$REPO_FIX" add main.py
+git -C "$REPO_FIX" commit -q -m init
+CHATBAR_HOME="$LINK_HOME" CHATBAR_NO_NOTIFY=1 CHATBAR_NO_OPEN=1 CHATBAR_NO_REWRITE=1 \
+  "$ROOT/cli/chatbar" project add --name agents-bar --repo "$REPO_FIX" --handoff "$PROJ" >/dev/null
+printf '2\n' > "$PROJ/round"
+printf 'none\n' > "$PROJ/pack-state"
+printf '0\n' > "$PROJ/pack-round"
+printf 'none\n' > "$PROJ/inbox-state"
+printf '0\n' > "$PROJ/inbox-round"
+OUT_DIR="$(CHATBAR_HOME="$LINK_HOME" CHATBAR_NO_NOTIFY=1 CHATBAR_NO_OPEN=1 CHATBAR_NO_REWRITE=1 \
+  "$ROOT/cli/chatbar" folders | sed -n 's/^outbox_dir=//p')"
+if [[ -z "$OUT_DIR" || ! -d "$OUT_DIR" ]]; then
+  echo "fixture outbox missing: ${OUT_DIR}" >&2
+  exit 1
+fi
+printf 'ready round\n' > "$OUT_DIR/to_chatgpt_R002.md"
+if [[ ! -f "$OUT_DIR/给GPT的话.txt" && ! -f "$OUT_DIR/opener.txt" && ! -f "$OUT_DIR/opener.md" ]]; then
+  printf 'opener\n' > "$OUT_DIR/给GPT的话.txt"
+fi
+DUMP_OUT="$FIX/dump.txt"
+DUMP_ERR="$FIX/dump.err"
+CHATBAR_HOME="$LINK_HOME" "$APP/Contents/MacOS/ChatBar" --self-test --dump-state >"$DUMP_OUT" 2>"$DUMP_ERR" &
+DUMP_PID=$!
+DUMP_CODE=1
+DUMP_DONE=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if ! kill -0 "$DUMP_PID" 2>/dev/null; then
+    set +e
+    wait "$DUMP_PID"
+    DUMP_CODE=$?
+    set -e
+    DUMP_DONE=1
+    break
+  fi
+  sleep 0.5
+done
+if [[ "$DUMP_DONE" -ne 1 ]]; then
+  kill "$DUMP_PID" 2>/dev/null || true
+  wait "$DUMP_PID" 2>/dev/null || true
+  echo "dump-state did not finish within 5s" >&2
+  cat "$DUMP_ERR" >&2 || true
+  exit 1
+fi
+if [[ "$DUMP_CODE" -ne 0 ]]; then
+  echo "dump-state failed ($DUMP_CODE)" >&2
+  cat "$DUMP_OUT" "$DUMP_ERR" >&2 || true
+  exit 1
+fi
+grep -F 'project: agents-bar' "$DUMP_OUT"
+grep -F '现在：①' "$DUMP_OUT"
+grep -F 'to_chatgpt_R002.md' "$DUMP_OUT"
+echo "dump-state ok"
+
 rm -f "$ROOT/dist/ChatBar-macos-unsigned.zip"
 ditto -c -k --keepParent "$APP" "$ROOT/dist/ChatBar-macos-unsigned.zip"
 echo "Built $APP"

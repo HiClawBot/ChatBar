@@ -56,6 +56,12 @@ public struct NextStep: Equatable, Decodable {
         if !chosen.isEmpty { return chosen }
         return chinese ? lineEn : lineZh
     }
+
+    /// CLI `next --json` field `text`, unchanged. This is the menu-bar sentence.
+    public var verbatimLine: String {
+        if !lineZh.isEmpty { return lineZh }
+        return lineEn
+    }
 }
 
 public enum NextStepFallback {

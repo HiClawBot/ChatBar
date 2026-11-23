@@ -244,6 +244,10 @@ cb_chatbar_bin() {
 cb_write_open_command() {
   local handoff="$1"
   local dest="${handoff}/打开收发两个窗口.command"
+  # A launch-time status read must not point an existing helper at another binary.
+  if [[ -n "${CHATBAR_NO_REWRITE:-}" || -e "$dest" ]]; then
+    return 0
+  fi
   local bin
   bin="$(cb_chatbar_bin)"
   {

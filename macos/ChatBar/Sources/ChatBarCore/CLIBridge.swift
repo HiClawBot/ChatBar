@@ -179,11 +179,38 @@ public struct CLIBridge {
         self.runner = runner
     }
 
+    /// Saved preference, then CHATBAR_HOME, then ~/handoff. A symlink is kept as given.
+    public static func resolvedHome(
+        defaults: String?,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String {
+        let chosen: String
+        let stored = defaults?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !stored.isEmpty {
+            chosen = stored
+        } else if let fromEnv = environment["CHATBAR_HOME"], !fromEnv.isEmpty {
+            chosen = fromEnv
+        } else {
+            chosen = (NSHomeDirectory() as NSString).appendingPathComponent("handoff")
+        }
+        return (chosen as NSString).expandingTildeInPath
+    }
+
     /// Overlay passed to the CLI. Clipboard and Finder stay available.
+    /// GUI apps do not get a login shell, so PATH and HOME are explicit.
     public func environmentOverlay() -> [String: String] {
-        [
+        let process = ProcessInfo.processInfo.environment
+        let homeDir = process["HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()
+        let inherited = process["PATH"] ?? ""
+        let prefix = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        let path = inherited.isEmpty ? prefix : prefix + ":" + inherited
+        return [
+            "HOME": homeDir,
+            "PATH": path,
             "CHATBAR_HOME": home,
-            "CHATBAR_NO_NOTIFY": "1"
+            "CHATBAR_NO_NOTIFY": "1",
+            "CHATBAR_NO_REWRITE": "1",
+            "GIT_TERMINAL_PROMPT": "0"
         ]
     }
 

@@ -72,7 +72,7 @@ cb_cmd_swiftbar_menu() {
       "$bin" "$headline_enc"
   fi
   if [[ "${#CB_P_NAME[@]}" -eq 0 ]]; then
-    printf '还没有项目 | bash=%s param1=project param2=add-interactive terminal=true refresh=true\n' "$bin"
+    printf '还没有项目 | size=12 color=#888888\n'
   else
     local current=""
     current="$(cb_current_name 2>/dev/null || true)"
@@ -112,6 +112,7 @@ cb_cmd_swiftbar_menu() {
   printf '归档 | bash=%s param1=archive terminal=false refresh=true\n' "$bin"
   printf '刷新 | refresh=true\n'
   printf '%s\n' '---'
-  printf '添加项目… | bash=%s param1=project param2=add-interactive terminal=true refresh=true\n' "$bin"
+  printf '%s\n' '更多 / 高级'
+  printf -- '-- 添加项目… | bash=%s param1=project param2=pick-folder terminal=false refresh=true\n' "$bin"
   printf '发送永远手动，不操作规划对话页面 | size=12 color=#888888\n'
 }
