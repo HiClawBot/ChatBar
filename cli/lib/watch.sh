@@ -34,7 +34,7 @@ cb_cmd_hook_install() {
 # chatbar hook — refresh the planner pack after a commit. Never fails the commit.
 # Does not touch a planner chat.
 if command -v chatbar >/dev/null 2>&1; then
-  chatbar pack --repo "$(git rev-parse --show-toplevel)" --quiet || true
+  chatbar pack --auto --repo "$(git rev-parse --show-toplevel)" --quiet || true
 fi
 EOF
 )"

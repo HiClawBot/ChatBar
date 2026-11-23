@@ -70,108 +70,6 @@ cb_drag_pack_path() {
   fi
 }
 
-# Sets the short title and the one action. No numbered list.
-cb_next_set() {
-  CB_NEXT_STATE="$1"
-  CB_NEXT_TITLE="$2"
-  CB_NEXT_ACTION="$3"
-  CB_NEXT_TEXT="$2"
-}
-
-cb_next_fields() {
-  local pack_state inbox_state inbox_round round pack_path outdir opener_ok reply_for_round
-  pack_state="$(cb_state_get "$CB_HANDOFF" "pack-state" "none")"
-  inbox_state="$(cb_state_get "$CB_HANDOFF" "inbox-state" "none")"
-  inbox_round="$(cb_state_get "$CB_HANDOFF" "inbox-round" "0")"
-  round="$(cb_active_round)"
-  if [[ "$inbox_state" == "new" ]]; then
-    if [[ "$inbox_round" != "0" ]]; then
-      round="$inbox_round"
-    fi
-    CB_NEXT_ROUND="$round"
-    CB_NEXT_FILE="$(cb_pack_filename "$round")"
-    CB_NEXT_REPLY="$(cb_reply_download_name "$CB_NAME" "$round")"
-    cb_next_set "inbox" "新任务" ""
-    return 0
-  fi
-  outdir="$(cb_dir "$CB_HANDOFF" outbox)"
-  pack_path="${outdir}/$(cb_pack_filename "$round")"
-  CB_NEXT_ROUND="$round"
-  CB_NEXT_FILE="$(cb_pack_filename "$round")"
-  CB_NEXT_REPLY="$(cb_reply_download_name "$CB_NAME" "$round")"
-  opener_ok=0
-  if [[ -f "${outdir}/给GPT的话.txt" || -f "${outdir}/opener.txt" || -f "${outdir}/opener.md" ]]; then
-    opener_ok=1
-  fi
-  reply_for_round=0
-  if [[ "$inbox_round" == "$round" && "$inbox_round" != "0" ]]; then
-    reply_for_round=1
-  fi
-  if [[ -f "$pack_path" && "$reply_for_round" == 0 ]]; then
-    if [[ "$pack_state" == "ready" || ( "$pack_state" == "none" && "$opener_ok" == 1 ) ]]; then
-      cb_next_set "ready" "复制" "复制给 g"
-      return 0
-    fi
-  fi
-  if [[ "$pack_state" == "presented" ]]; then
-    cb_next_set "waiting" "等 g" "打开下载"
-    return 0
-  fi
-  cb_next_set "need_pack" "待打包" ""
-}
-
-cb_next_emit() {
-  local as_json="$1"
-  if [[ "$as_json" == 1 ]]; then
-    printf '{"text":"%s","title_short":"%s","action_label":"%s","state":"%s","round":%s,"file":"%s","reply_file":"%s"}\n' \
-      "$(cb_json_escape "$CB_NEXT_TEXT")" \
-      "$(cb_json_escape "${CB_NEXT_TITLE:-}")" \
-      "$(cb_json_escape "${CB_NEXT_ACTION:-}")" \
-      "$CB_NEXT_STATE" \
-      "${CB_NEXT_ROUND:-0}" \
-      "$(cb_json_escape "${CB_NEXT_FILE:-}")" \
-      "$(cb_json_escape "${CB_NEXT_REPLY:-}")"
-  else
-    printf '%s\n' "$CB_NEXT_TEXT"
-  fi
-}
-
-cb_cmd_next() {
-  local as_json=0
-  local name=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --json) as_json=1; shift ;;
-      --project) name="${2:-}"; shift 2 ;;
-      --) shift; break ;;
-      -*) cb_die "unknown flag: $1" ;;
-      *)
-        if [[ -z "$name" ]]; then
-          name="$1"
-          shift
-        else
-          cb_die "unexpected argument: $1"
-        fi
-        ;;
-    esac
-  done
-  cb_projects_load
-  if [[ "${#CB_P_NAME[@]}" -eq 0 ]]; then
-    CB_NEXT_STATE="no_project"
-    CB_NEXT_TITLE="添加"
-    CB_NEXT_ACTION=""
-    CB_NEXT_TEXT="添加"
-    CB_NEXT_ROUND=0
-    CB_NEXT_FILE=""
-    CB_NEXT_REPLY=""
-    cb_next_emit "$as_json"
-    return 0
-  fi
-  cb_resolve_project_arg "$name"
-  cb_next_fields
-  cb_next_emit "$as_json"
-}
-
 # Copy the opener and select the exact round file. Does not send anything.
 cb_cmd_handoff_now() {
   cb_select_project_target "$@"
@@ -193,7 +91,7 @@ cb_show_dir() {
     printf 'reveal:%s\n' "$target"
     return 0
   fi
-  open "$target" || cb_warn "open failed: ${target}"
+  open "$target" || { cb_warn "open failed: ${target}"; return 1; }
 }
 
 cb_cmd_open_handoff() {
@@ -209,12 +107,12 @@ cb_cmd_open_root() {
   cb_show_dir "$CB_WORKSPACE"
 }
 
+cb_downloads_dir() {
+  printf '%s' "${CHATBAR_DOWNLOADS:-${HOME}/Downloads}"
+}
+
 cb_cmd_open_downloads() {
-  local dir="${CHATBAR_DOWNLOADS:-${HOME}/Downloads}"
-  if [[ -d "$dir" ]]; then
-    dir="$(cd -P "$dir" && pwd)"
-  fi
-  cb_show_dir "$dir"
+  cb_show_dir "$(cb_abs_dir "$(cb_downloads_dir)")"
 }
 
 cb_cmd_open_home() {

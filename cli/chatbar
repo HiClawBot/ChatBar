@@ -53,12 +53,14 @@ source "${CB_LIB}/ingest.sh"
 source "${CB_LIB}/patches.sh"
 # shellcheck source=lib/session.sh
 source "${CB_LIB}/session.sh"
+# shellcheck source=lib/next.sh
+source "${CB_LIB}/next.sh"
+# shellcheck source=lib/auto.sh
+source "${CB_LIB}/auto.sh"
 # shellcheck source=lib/menu.sh
 source "${CB_LIB}/menu.sh"
 # shellcheck source=lib/watch.sh
 source "${CB_LIB}/watch.sh"
-# shellcheck source=lib/auto.sh
-source "${CB_LIB}/auto.sh"
 # shellcheck source=lib/update.sh
 source "${CB_LIB}/update.sh"
 
@@ -80,7 +82,8 @@ Sending in the planner chat is always your own drag. No web automation.
   chatbar pack [--project NAME | --repo PATH] [--full] [--quiet]
   chatbar open [NAME]              # copy opener, open outbox (left) + inbox (right)
   chatbar reveal [NAME]            # open the two folders, no clipboard change
-  chatbar next [NAME] [--json]    # the one action to do now
+  chatbar next [NAME] [--json]      # the one action to do now
+  chatbar step advance|back NAME ROUND STEP
   chatbar handoff-now [NAME]       # copy opener and select to_chatgpt_R00N.md
   chatbar copy-opener [NAME]
   chatbar ingest [--project NAME] FILE...
@@ -122,6 +125,8 @@ cb_main() {
     reveal) cb_cmd_reveal "$@" ;;
     copy-opener) cb_cmd_copy_opener "$@" ;;
     next) cb_cmd_next "$@" ;;
+    step) cb_cmd_step "$@" ;;
+    auto) cb_cmd_auto "$@" ;;
     handoff-now) cb_cmd_handoff_now "$@" ;;
     ingest) cb_cmd_ingest "$@" ;;
     apply) cb_cmd_apply "$@" ;;
@@ -133,7 +138,6 @@ cb_main() {
     folders) cb_cmd_folders "$@" ;;
     done) cb_cmd_done "$@" ;;
     sweep) cb_cmd_sweep "$@" ;;
-    auto) cb_cmd_auto "$@" ;;
     update) cb_cmd_update "$@" ;;
     project)
       local sub="${1:-}"
@@ -161,7 +165,7 @@ cb_main() {
     watch) cb_cmd_watch "$@" ;;
     swiftbar-menu) cb_cmd_swiftbar_menu "$@" ;;
     help|-h|--help) cb_help ;;
-    version|--version) printf 'chatbar %s\n' "0.1.0" ;;
+    version|--version) printf 'chatbar %s\n' "$(cb_version)" ;;
     *) cb_die "unknown command: ${cmd}. Try: chatbar help" ;;
   esac
 }

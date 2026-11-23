@@ -46,13 +46,27 @@ The log role folder holds `轮次总表.md` and `events.jsonl` (`spec_version`, 
 
 ## Next step
 
-The drag file for round N is `outbox/to_chatgpt_R00N.md` (also written as `to_planner.md`). A hand-written file for the current round counts as ready when an opener is in the outbox (`给GPT的话.txt`, `opener.txt`, or `opener.md`) and that round has no ingested reply. `chatbar next` prints one short Chinese sentence for the current action. `chatbar next --json` returns `text`, `state` (`need_pack`, `ready`, `waiting`, `inbox`, `no_project`), `round`, `file`, and `reply_file` so a native menu bar can show the same sentence. `chatbar handoff-now` copies the opener and selects that exact file in Finder. It does not click or type into any chat app.
+The round file is `outbox/to_chatgpt_R00N.md`. A hand-written file for the current round is ready when its outbox has an opener (`给GPT的话.txt`, `opener.txt`, or `opener.md`).
 
-The menu bar title is a few characters (`复制`, `等 g`, `待打包`, `新任务`). One action sits under it: `复制给 g` (`handoff-now`) or `打开下载`. `chatbar next --json` adds `title_short` and `action_label`.
+`chatbar next --json [PROJECT]` returns `step`, `title_short`, `action_label`, `project`, `round`, and `file`. The last field is a local path or an empty string. Use `chatbar step advance PROJECT ROUND STEP` to run the shown action. The command checks the project, round and step against current local state. `chatbar step back PROJECT ROUND STEP` goes back where the menu offers that action.
 
-A new reply (`inbox-state` new, `NEW.json`, `agent-result.json`, or the round's reply zip) sets the title to `新任务`, draws a red dot, and prefixes that project row with `●`. Clicking the row makes it current. The row submenu is `打开`, `自动收发`, and `结束本轮`.
+| Step | Menu action | `file` |
+| --- | --- | --- |
+| `no_project` | 还没有项目 | Empty |
+| `need_pack` | 等待本地助手打包 | Empty |
+| `copy` | 复制给 g 的话 | Round pack |
+| `paste` | 我已粘贴 | Round pack |
+| `drag` | 拖文件 | Round pack to select in Finder |
+| `send` | 我已拖入并发送 | Round pack |
+| `wait` | 打开下载文件夹 | Expected ZIP in Downloads |
+| `received` | 收好了 | Receipt manifest in inbox or archive |
+| `result` | 查看结果 | The local agent result at `agent-result.json` |
 
-`自动收发` is off unless turned on globally and for that project. Only `sweep --auto` honors it. `chatbar update --check` uses the public GitHub API and codeload, verifies sha256, and does not install. `chatbar update` installs on request and leaves handoff state in place. `chatbar update --rollback` restores the `.prev-<timestamp>` tree.
+The first menu row shows the current action. The header displays a short title and icon. A fresh pack, unread reply, or changed local agent result shows a red dot for its project and sets the header to「新任务」. Selecting a project row changes the current project. Administrative actions live under「更多」.
+
+Local progress is recorded in `menu-progress`. A previous `pack-state=presented` alone is insufficient to infer that a user sent anything. A new archived or unarchived reply updates `menu-receipt`. Switching projects keeps both state files intact.
+
+Manual menu bar drops and refreshes work with auto-exchange off. Background inbox sweeps require the global and project `auto` flags. With both flags on, sweeps also collect a settled ZIP in Downloads at the expected filename after the user confirms they sent that round. The download remains in Downloads.
 
 ## Writes
 

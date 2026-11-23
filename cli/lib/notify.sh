@@ -51,16 +51,16 @@ cb_clipboard_copy() {
     return 0
   fi
   if [[ "$(uname -s)" == "Darwin" ]] && command -v pbcopy >/dev/null 2>&1; then
-    printf '%s' "$text" | pbcopy || true
-    return 0
+    printf '%s' "$text" | pbcopy
+    return $?
   fi
   if command -v wl-copy >/dev/null 2>&1; then
-    printf '%s' "$text" | wl-copy || true
-    return 0
+    printf '%s' "$text" | wl-copy
+    return $?
   fi
   if command -v xclip >/dev/null 2>&1; then
-    printf '%s' "$text" | xclip -selection clipboard || true
-    return 0
+    printf '%s' "$text" | xclip -selection clipboard
+    return $?
   fi
   return 0
 }
@@ -72,7 +72,7 @@ cb_reveal_path() {
     return 0
   fi
   if [[ -f "$target" ]]; then
-    open -R "$target" || cb_warn "open -R failed: ${target}"
+    open -R "$target" || { cb_warn "open -R failed: ${target}"; return 1; }
   elif [[ -d "$target" ]]; then
     open "$target" || cb_warn "open failed: ${target}"
   else
