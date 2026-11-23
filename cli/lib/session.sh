@@ -205,6 +205,18 @@ cb_cmd_open_root() {
   cb_show_dir "$CB_WORKSPACE"
 }
 
+cb_cmd_open_downloads() {
+  local dir="${CHATBAR_DOWNLOADS:-${HOME}/Downloads}"
+  cb_show_dir "$dir"
+}
+
+cb_cmd_open_home() {
+  local home
+  home="$(cb_home)"
+  mkdir -p "$home"
+  cb_show_dir "$home"
+}
+
 cb_cmd_reveal() {
   cb_select_project_target "$@"
   local outdir inbox pack

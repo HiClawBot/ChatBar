@@ -48,6 +48,12 @@ The log role folder holds `轮次总表.md` and `events.jsonl` (`spec_version`, 
 
 The drag file for round N is `outbox/to_chatgpt_R00N.md` (also written as `to_planner.md`). A hand-written file for the current round counts as ready when an opener is in the outbox (`给GPT的话.txt`, `opener.txt`, or `opener.md`) and that round has no ingested reply. `chatbar next` prints one short Chinese sentence for the current action. `chatbar next --json` returns `text`, `state` (`need_pack`, `ready`, `waiting`, `inbox`, `no_project`), `round`, `file`, and `reply_file` so a native menu bar can show the same sentence. `chatbar handoff-now` copies the opener and selects that exact file in Finder. It does not click or type into any chat app.
 
+The menu (SwiftBar and a native menu bar) is three parts:
+
+1. The title is that one sentence.
+2. One primary action for the current state. `ready`: `① 复制并选中文件（然后去 g 粘贴、拖入、发送）` (`handoff-now`). `waiting`: `打开下载文件夹` (`open-downloads`). `inbox` and `need_pack`: no action. Do not also show a separate “copy the opener” item.
+3. Project rows are status only (`name · 第 N 轮 · 待发给 g`), and a click switches the current project. Per-project folder and close-round items appear only when there is more than one project, and only under `更多`. Pack, reveal, archive, refresh, add-project, and settings live under `更多`. Footer: `发送永远由你手动`.
+
 ## Writes
 
 Manifests and state files are written to a temp file in the same directory, then renamed. A `.lock` directory serializes writers.

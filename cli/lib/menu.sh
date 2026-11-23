@@ -1,17 +1,14 @@
 # SwiftBar menu. Clicks call the CLI. MIT License.
 
-cb_menu_label() {
-  local inbox_state="$1"
-  local pack_state="$2"
-  if [[ "$inbox_state" == "new" ]]; then
-    printf '%s' "新回复"
-  elif [[ "$pack_state" == "ready" ]]; then
-    printf '%s' "待拖出"
-  elif [[ "$pack_state" == "presented" ]]; then
-    printf '%s' "已给出"
-  else
-    printf '%s' "空闲"
-  fi
+# Status only. The project row does not offer a second copy action.
+cb_menu_round_status() {
+  cb_next_fields
+  case "$CB_NEXT_STATE" in
+    ready) printf '第 %s 轮 · 待发给 g' "$CB_NEXT_ROUND" ;;
+    waiting) printf '第 %s 轮 · 等 g 回复' "$CB_NEXT_ROUND" ;;
+    inbox) printf '第 %s 轮 · 已交给 agent' "$CB_NEXT_ROUND" ;;
+    *) printf '第 %s 轮 · 待打包' "$CB_NEXT_ROUND" ;;
+  esac
 }
 
 cb_menu_title_safe() {
@@ -21,27 +18,43 @@ cb_menu_title_safe() {
   printf '%s' "$s"
 }
 
+cb_menu_more() {
+  local bin="$1"
+  local n="${#CB_P_NAME[@]}"
+  local i name enc
+  printf '%s\n' '更多'
+  printf -- '-- 打包 | bash=%s param1=pack terminal=false refresh=true\n' "$bin"
+  printf -- '-- 打开收发窗口 | bash=%s param1=reveal terminal=false\n' "$bin"
+  if [[ "$n" -eq 1 ]]; then
+    enc="$(cb_b64enc "${CB_P_NAME[0]}")"
+    printf -- '-- 打开交接目录 | bash=%s param1=open-handoff param2=b64:%s terminal=false\n' "$bin" "$enc"
+    printf -- '-- 打开项目根目录 | bash=%s param1=open-root param2=b64:%s terminal=false\n' "$bin" "$enc"
+    printf -- '-- 归档 | bash=%s param1=archive param2=b64:%s terminal=false refresh=true\n' "$bin" "$enc"
+    printf -- '-- 结束本轮 | bash=%s param1=archive param2=b64:%s terminal=false refresh=true\n' "$bin" "$enc"
+  elif [[ "$n" -gt 1 ]]; then
+    printf -- '-- 归档 | bash=%s param1=archive terminal=false refresh=true\n' "$bin"
+    for i in "${!CB_P_NAME[@]}"; do
+      name="${CB_P_NAME[$i]}"
+      enc="$(cb_b64enc "$name")"
+      printf -- '-- %s\n' "$(cb_menu_title_safe "$name")"
+      printf -- '---- 打开交接目录 | bash=%s param1=open-handoff param2=b64:%s terminal=false\n' "$bin" "$enc"
+      printf -- '---- 打开项目根目录 | bash=%s param1=open-root param2=b64:%s terminal=false\n' "$bin" "$enc"
+      printf -- '---- 结束本轮 | bash=%s param1=archive param2=b64:%s terminal=false refresh=true\n' "$bin" "$enc"
+    done
+  fi
+  printf -- '-- 刷新 | refresh=true\n'
+  printf -- '-- 添加项目… | bash=%s param1=project param2=pick-folder terminal=false refresh=true\n' "$bin"
+  printf -- '-- 设置 | bash=%s param1=open-home terminal=false\n' "$bin"
+}
+
 cb_cmd_swiftbar_menu() {
   local bin
   bin="$(cb_chatbar_bin)"
   cb_projects_load
-  local replies=0 ready=0 i
-  if [[ "${#CB_P_NAME[@]}" -gt 0 ]]; then
-    for i in "${!CB_P_NAME[@]}"; do
-      local handoff inbox_state pack_state
-      handoff="${CB_P_HANDOFF[$i]}"
-      inbox_state="$(cb_state_get "$handoff" "inbox-state" "none")"
-      pack_state="$(cb_state_get "$handoff" "pack-state" "none")"
-      if [[ "$inbox_state" == "new" ]]; then
-        replies=$((replies + 1))
-      elif [[ "$pack_state" == "ready" ]]; then
-        ready=$((ready + 1))
-      fi
-    done
-  fi
   local headline="现在：先添加项目"
   local headline_state="no_project"
   local headline_enc=""
+  local i
   if [[ "${#CB_P_NAME[@]}" -gt 0 ]]; then
     local current="" idx=0
     current="$(cb_current_name 2>/dev/null || true)"
@@ -59,17 +72,23 @@ cb_cmd_swiftbar_menu() {
     headline_state="$CB_NEXT_STATE"
     headline_enc="$(cb_b64enc "$CB_NAME")"
   fi
-  if [[ "$replies" -gt 0 ]]; then
-    printf '%s | sfimage=tray.and.arrow.down color=#C2410C size=16\n' "$(cb_menu_title_safe "$headline")"
-  elif [[ "$ready" -gt 0 || "$headline_state" == "ready" ]]; then
-    printf '%s | sfimage=shippingbox color=#1D4ED8 size=16\n' "$(cb_menu_title_safe "$headline")"
-  else
-    printf '%s | sfimage=arrow.left.arrow.right size=16\n' "$(cb_menu_title_safe "$headline")"
-  fi
+  case "$headline_state" in
+    inbox)
+      printf '%s | sfimage=tray.and.arrow.down color=#C2410C size=16\n' "$(cb_menu_title_safe "$headline")"
+      ;;
+    ready)
+      printf '%s | sfimage=shippingbox color=#1D4ED8 size=16\n' "$(cb_menu_title_safe "$headline")"
+      ;;
+    *)
+      printf '%s | sfimage=arrow.left.arrow.right size=16\n' "$(cb_menu_title_safe "$headline")"
+      ;;
+  esac
   printf '%s\n' '---'
   if [[ "$headline_state" == "ready" && -n "$headline_enc" ]]; then
-    printf '就做本地这步 | bash=%s param1=handoff-now param2=b64:%s terminal=false refresh=true\n' \
+    printf '① 复制并选中文件（然后去 g 粘贴、拖入、发送） | bash=%s param1=handoff-now param2=b64:%s terminal=false refresh=true\n' \
       "$bin" "$headline_enc"
+  elif [[ "$headline_state" == "waiting" ]]; then
+    printf '打开下载文件夹 | bash=%s param1=open-downloads terminal=false\n' "$bin"
   fi
   if [[ "${#CB_P_NAME[@]}" -eq 0 ]]; then
     printf '还没有项目 | size=12 color=#888888\n'
@@ -77,42 +96,29 @@ cb_cmd_swiftbar_menu() {
     local current=""
     current="$(cb_current_name 2>/dev/null || true)"
     for i in "${!CB_P_NAME[@]}"; do
-      local name handoff label inbox_state pack_state enc checked color
+      local name status enc checked color
       name="${CB_P_NAME[$i]}"
-      handoff="${CB_P_HANDOFF[$i]}"
-      inbox_state="$(cb_state_get "$handoff" "inbox-state" "none")"
-      pack_state="$(cb_state_get "$handoff" "pack-state" "none")"
-      label="$(cb_menu_label "$inbox_state" "$pack_state")"
+      cb_load_project_fields "$i"
+      status="$(cb_menu_round_status)"
       enc="$(cb_b64enc "$name")"
       checked=""
       color=""
       if [[ "$name" == "$current" ]]; then
         checked=" checked=true"
       fi
-      if [[ "$inbox_state" == "new" ]]; then
+      if [[ "$CB_NEXT_STATE" == "inbox" ]]; then
         color=" color=#C2410C"
       fi
-      printf '%s · %s | bash=%s param1=open param2=b64:%s terminal=false refresh=true%s%s\n' \
+      printf '%s · %s | bash=%s param1=project param2=use param3=b64:%s terminal=false refresh=true%s%s\n' \
         "$(cb_menu_title_safe "$name")" \
-        "$label" \
+        "$status" \
         "$bin" \
         "$enc" \
         "$checked" \
         "$color"
-      printf '%s\n' "复制给 GPT 的话 · $(cb_menu_title_safe "$name") | bash=${bin} param1=copy-opener param2=b64:${enc} terminal=false"
-      printf '%s\n' "-- 打开交接目录 · Open handoff folder | bash=${bin} param1=open-handoff param2=b64:${enc} terminal=false"
-      printf '%s\n' "-- 打开项目根目录 · Open workspace root | bash=${bin} param1=open-root param2=b64:${enc} terminal=false"
-      printf '%s\n' "-- 结束本轮 · Close round | bash=${bin} param1=archive param2=b64:${enc} terminal=false refresh=true"
     done
   fi
   printf '%s\n' '---'
-  printf '打包当前项目 | bash=%s param1=pack terminal=false refresh=true\n' "$bin"
-  printf '复制给 GPT 的话 | bash=%s param1=copy-opener terminal=false\n' "$bin"
-  printf '打开收发窗口 | bash=%s param1=reveal terminal=false\n' "$bin"
-  printf '归档 | bash=%s param1=archive terminal=false refresh=true\n' "$bin"
-  printf '刷新 | refresh=true\n'
-  printf '%s\n' '---'
-  printf '%s\n' '更多 / 高级'
-  printf -- '-- 添加项目… | bash=%s param1=project param2=pick-folder terminal=false refresh=true\n' "$bin"
-  printf '发送永远手动，不操作规划对话页面 | size=12 color=#888888\n'
+  cb_menu_more "$bin"
+  printf '发送永远由你手动 | size=12 color=#888888\n'
 }

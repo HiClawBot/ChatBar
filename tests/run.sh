@@ -286,16 +286,25 @@ assert_contains "$rshow" "reveal:${WS}" "open workspace"
 
 # menu
 menu="$("$CHATBAR" swiftbar-menu)"
-assert_contains "$menu" "项目甲" "menu project"
-assert_contains "$menu" "Open handoff folder" "menu handoff"
-assert_contains "$menu" "Open workspace root" "menu workspace"
-assert_contains "$menu" "Close round" "menu close"
-assert_contains "$menu" "复制给 GPT 的话" "menu copy opener"
-assert_contains "$menu" "param1=copy-opener" "menu copy action"
-assert_contains "$menu" "更多 / 高级" "add project lives under more"
+assert_contains "$menu" "项目甲 · 第" "menu project is status only"
+assert_contains "$menu" "param1=project param2=use" "project row switches current"
+assert_contains "$menu" "---- 打开交接目录" "per-project folder item is under 更多"
+assert_contains "$menu" "---- 打开项目根目录" "per-project root item is under 更多"
+assert_contains "$menu" "---- 结束本轮" "per-project close is under 更多"
+assert_contains "$menu" "param1=open-handoff" "menu handoff action"
+assert_contains "$menu" "param1=open-root" "menu root action"
+assert_contains "$menu" $'\n更多\n' "more submenu"
+assert_contains "$menu" "-- 打包" "pack is under more"
+assert_contains "$menu" "-- 打开收发窗口" "reveal is under more"
+assert_contains "$menu" "-- 刷新" "refresh is under more"
+assert_contains "$menu" "-- 设置" "settings is under more"
 assert_contains "$menu" "-- 添加项目…" "add project is a submenu item"
 assert_contains "$menu" "param2=pick-folder" "add project uses the folder picker"
+assert_contains "$menu" "发送永远由你手动" "short footer"
 assert_contains "$menu" "terminal=false" "menu actions stay out of Terminal"
+if printf '%s' "$menu" | grep -q '复制给 GPT 的话\|就做本地这步\|更多 / 高级'; then
+  fail "menu still has a duplicate action"
+fi
 if printf '%s' "$menu" | grep -q 'terminal=true'; then
   fail "menu asked for a terminal"
 fi
@@ -305,6 +314,7 @@ fi
 mkdir -p "$TMP/empty-home"
 empty_menu="$(CHATBAR_HOME="$TMP/empty-home" "$CHATBAR" swiftbar-menu)"
 assert_contains "$empty_menu" "还没有项目" "empty menu has no project"
+assert_contains "$empty_menu" $'\n更多\n' "empty menu uses 更多"
 assert_contains "$empty_menu" "-- 添加项目…" "empty menu still offers the folder picker"
 if printf '%s' "$empty_menu" | grep -q 'terminal=true\|add-interactive'; then
   fail "empty menu still opens a terminal prompt"
@@ -509,8 +519,14 @@ assert_contains "$(cat "$AHANDOFF/①发出_拖给ChatGPT/to_chatgpt_R002.md")" 
 menu_next="$("$CHATBAR" swiftbar-menu)"
 assert_contains "$menu_next" "现在：① 点『复制给 g 的话』" "menu top line is the action"
 assert_contains "$menu_next" "to_chatgpt_R002.md" "menu names the file"
-assert_contains "$menu_next" "就做本地这步" "menu one local step"
+assert_contains "$menu_next" "① 复制并选中文件（然后去 g 粘贴、拖入、发送）" "menu one primary action"
+assert_contains "$menu_next" "agents-bar · 第 2 轮 · 待发给 g" "project row is status"
 assert_contains "$menu_next" "param1=handoff-now" "menu local step command"
+handoff_lines="$(printf '%s\n' "$menu_next" | grep -c 'param1=handoff-now' || true)"
+assert_eq "$handoff_lines" "1" "only one copy-and-select action"
+if printf '%s' "$menu_next" | grep -q '复制给 GPT 的话\|就做本地这步'; then
+  fail "ready menu showed a second copy action"
+fi
 local_out="$("$CHATBAR" handoff-now agents-bar)"
 assert_contains "$local_out" "clipboard:" "handoff copies"
 assert_contains "$local_out" "reveal:" "handoff reveals"
@@ -525,8 +541,10 @@ assert_contains "$wait_json" '"state":"waiting"' "next json waiting"
 "$CHATBAR" project use agents-bar >/dev/null
 menu_wait="$("$CHATBAR" swiftbar-menu)"
 assert_contains "$menu_wait" "等 g 回复，回完点下载 agents-bar_round2_reply.zip" "menu waiting line"
-if printf '%s' "$menu_wait" | grep -q '就做本地这步'; then
-  fail "local step shown while waiting"
+assert_contains "$menu_wait" "打开下载文件夹" "waiting action opens Downloads"
+assert_contains "$menu_wait" "param1=open-downloads" "waiting action command"
+if printf '%s' "$menu_wait" | grep -q '就做本地这步\|① 复制并选中文件\|复制给 GPT 的话'; then
+  fail "waiting menu showed the send action"
 fi
 
 # a hand-written current-round file is ready even when pack-state is still none
@@ -556,7 +574,8 @@ assert_eq "$(tr -d '\r\n' < "$HWHANDOFF/pack-state")" "none" "next does not rewr
 "$CHATBAR" project use 手写 >/dev/null
 hw_menu="$("$CHATBAR" swiftbar-menu)"
 assert_contains "$hw_menu" "to_chatgpt_R001.md" "hand-written menu names the file"
-assert_contains "$hw_menu" "就做本地这步" "hand-written pack shows the local step"
+assert_contains "$hw_menu" "① 复制并选中文件（然后去 g 粘贴、拖入、发送）" "hand-written pack shows the one action"
+assert_contains "$hw_menu" "手写 · 第 1 轮 · 待发给 g" "hand-written row status"
 rm -f "$hw_out/给GPT的话.txt" "$hw_out/opener.txt" "$hw_out/opener.md"
 hw_bare="$("$CHATBAR" next 手写)"
 assert_eq "$hw_bare" "现在：让 agent 跑 chatbar pack，你先不用做事" "pack file without opener is not ready"
@@ -565,6 +584,31 @@ printf 'got it\n' > "$TMP/hw-reply.md"
 "$CHATBAR" ingest --project 手写 "$TMP/hw-reply.md" >/dev/null
 hw_in="$("$CHATBAR" next 手写)"
 assert_eq "$hw_in" "已收到 R001，交给 agent 处理中，你不用做事" "ingested reply beats a hand-written pack"
+"$CHATBAR" project use 手写 >/dev/null
+inbox_menu="$("$CHATBAR" swiftbar-menu)"
+assert_contains "$inbox_menu" "手写 · 第 1 轮 · 已交给 agent" "inbox row has no task"
+if printf '%s\n' "$inbox_menu" | grep -q '① 复制并选中文件\|打开下载文件夹\|复制给 GPT 的话'; then
+  fail "inbox menu offered the user a step"
+fi
+
+# one project keeps folder actions in 更多, not a nested project menu
+ONEHOME="$TMP/one-home"
+ONEREPO="$TMP/one-repo"
+mkdir -p "$ONEHOME" "$ONEREPO"
+CHATBAR_HOME="$ONEHOME" "$CHATBAR" project add --name "solo" --repo "$ONEREPO" >/dev/null
+one_menu="$(CHATBAR_HOME="$ONEHOME" "$CHATBAR" swiftbar-menu)"
+assert_contains "$one_menu" "solo · 第 1 轮 · 待打包" "single project status"
+assert_contains "$one_menu" "-- 打开交接目录" "single project folder item is directly under 更多"
+if printf '%s\n' "$one_menu" | grep -q '^---- '; then
+  fail "single project nested a per-project submenu"
+fi
+dl="$TMP/下载夹"
+mkdir -p "$dl"
+dl_phys="$(cd -P "$dl" && pwd)"
+dl_out="$(CHATBAR_DOWNLOADS="$dl" "$CHATBAR" open-downloads)"
+assert_contains "$dl_out" "reveal:${dl_phys}" "open downloads is local"
+home_out="$("$CHATBAR" open-home)"
+assert_contains "$home_out" "reveal:" "open home is local"
 
 # folder picker names the project after the chosen folder and does not prompt
 PICK="$TMP/picked 项目"

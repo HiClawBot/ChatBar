@@ -85,12 +85,12 @@ chatbar project add --name "项目甲" --repo ~/code/foo --with-templates
         +-------- chatbar ingest（自动解压、改名、识别补丁） --+
 ```
 
-1. 助手做完一轮后运行 `chatbar pack`。菜单栏第一行只写这一步。包是 `to_chatgpt_R00N.md`。点「就做本地这步」：开场白进剪贴板，Finder 选中这个文件。你粘贴、拖进去、自己点发送。
+1. 助手做完一轮后运行 `chatbar pack`。菜单栏第一行只写这一步。包是 `to_chatgpt_R00N.md`。唯一的按钮是「① 复制并选中文件」：开场白进剪贴板，Finder 选中这个文件。你去 g 里粘贴、拖进去、自己点发送。
 2. 你把包拖进 ChatGPT，粘贴开场白，自己点发送。`chatbar next` 会改成「等 g 回复，回完点下载 {项目}_roundN_reply.zip」。
 3. 你把 ChatGPT 的回复（`.md` / `.txt` / `.zip` / `.pdf` / 图片，名字随意）拖到菜单栏图标，或拖进该项目的收回夹。
 4. ChatBar 解压、按轮次改名、写入 `NEW.json`。若回复里有代码，见下一节。
 
-菜单里每个项目都有 **复制给 GPT 的话**。点一下就把这一轮的开场白放进剪贴板（`pbcopy`）。开场白按轮次现生成：第 1 轮是项目介绍、角色和附件说明；之后是「上一轮你建议了 X，这一轮我们改了 Y，请审阅并回答问题」。问题来自 `status.md`。助手也可以在打包前写出发出夹里的 `opener.md` 覆盖它。项目模板是 `templates/opener-round1.md` 和 `templates/opener-next.md`。发出夹里有可见的 `给GPT的话.txt`，以及双击即可复制的 `复制开场白.command`。
+菜单只有一行下一步、一个对应当前状态的按钮，和项目状态。打包、打开目录、归档、刷新、添加项目都在「更多」里。点项目行只是切换当前项目。开场白按轮次现生成：第 1 轮是项目介绍、角色和附件说明；之后是「上一轮你建议了 X，这一轮我们改了 Y，请审阅并回答问题」。问题来自 `status.md`。助手也可以在打包前写出发出夹里的 `opener.md` 覆盖它。项目模板是 `templates/opener-round1.md` 和 `templates/opener-next.md`。发出夹里有可见的 `给GPT的话.txt`，以及双击即可复制的 `复制开场白.command`。
 
 发出夹和收回夹的显示名可以改。默认是 `①发出_拖给ChatGPT` 和 `②收回_ChatGPT回复拖到这里`。`chat_name` 换成「规划聊天」时，文件夹会变成 `①发出_拖给规划聊天`。归档是 `已归档`，记录是 `记录`。规范见 `spec/handoff-v0.md`。
 
@@ -138,7 +138,7 @@ The planner chat should not commit. It returns a unified diff against the main c
 真实的 SwiftBar 拖放要在 Mac 上试。清单：
 
 1. `./scripts/install.sh` 之后菜单出现 ChatBar。
-2. 菜单栏第一行是当前这一步。点「就做本地这步」后，Finder 选中 `to_chatgpt_R00N.md`，剪贴板里是这一轮的开场白。聊天软件要自己粘贴、自己发送。
-3. 点「复制给 GPT 的话」，只复制、不打开聊天软件。
+2. 菜单栏第一行是当前这一步。点「① 复制并选中文件」后，Finder 选中 `to_chatgpt_R00N.md`，剪贴板里是这一轮的开场白。聊天软件要自己粘贴、自己发送。
+3. 菜单里没有第二份「复制给 GPT 的话」。其余命令在「更多」里。
 4. 把一个 zip 或 md 拖到图标上，收回夹或归档里出现改名后的文件；若是 diff，`NEW.json` 的 type 为 `code_patch`。
 5. `chatbar apply` 后当前分支是 `chatbar/R00N`，`main` 的提交没有变。
