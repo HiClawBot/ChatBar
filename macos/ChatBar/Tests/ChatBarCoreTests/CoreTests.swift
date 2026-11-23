@@ -102,6 +102,12 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(RelayStep.label(direction: "to_planner", chinese: true), "聊天")
         XCTAssertEqual(RelayStep.label(direction: "from_planner", chinese: false), "billiards")
         XCTAssertEqual(RelayStep.label(direction: "archive", chinese: true), "飞镖")
+        XCTAssertEqual(LaunchRequest.view(from: ["ChatBar", "--show", "bar"]), .bar)
+        XCTAssertEqual(LaunchRequest.view(from: ["ChatBar", "--show", "settings"]), .settings)
+        XCTAssertNil(LaunchRequest.view(from: ["ChatBar"]))
+        let card = URL(string: "chatbar-app://open?view=card")!
+        XCTAssertEqual(LaunchRequest.view(from: card), .card)
+        XCTAssertNil(LaunchRequest.view(from: URL(string: "https://example.com/?view=bar")!))
         XCTAssertEqual(IconStyleResolver.style(projects: [], dropHighlighted: false), .idle)
     }
 

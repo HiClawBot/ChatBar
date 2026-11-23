@@ -72,6 +72,7 @@ final class CardModel: ObservableObject {
 
     var bridge: CLIBridge?
     var onIcon: (IconStyle) -> Void = { _ in }
+    var presentSettings: () -> Void = {}
     private var loadedOpener = ""
     private var saveItem: DispatchWorkItem?
     private var knownReplies = Set<String>()
@@ -305,9 +306,6 @@ struct CardView: View {
         .frame(width: 340, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.ultraThinMaterial))
         .animation(.easeInOut(duration: 0.18), value: model.phaseToken)
-        .sheet(isPresented: $model.settingsVisible) {
-            SettingsView(model: model)
-        }
     }
 
     private var header: some View {
@@ -342,7 +340,7 @@ struct CardView: View {
                     Button("应用补丁") { model.applyPatch() }
                     Button("只复制文件") { model.copyFilesOnly() }
                     Button("只复制开场白") { model.copyOpenerOnly() }
-                    Button(L10n.text("menu.settings")) { model.settingsVisible = true }
+                    Button(L10n.text("menu.settings")) { model.presentSettings() }
                     Divider()
                     Text(L10n.text("menu.safety"))
                 } label: {
@@ -594,9 +592,7 @@ final class FolderWatcher {
             release: nil,
             copyDescription: nil
         )
-        let flags = FSEventStreamCreateFlags(
-            rawValue: UInt32(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagNoDefer)
-        )
+        let flags = FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagNoDefer)
         stream = FSEventStreamCreate(
             nil,
             { _, info, _, _, _, _ in
@@ -628,6 +624,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private let popover = NSPopover()
     private var barWindow: BarWindowController?
+    private var settingsWindow: NSWindow?
     private let watcher = FolderWatcher()
     private var debounce: DispatchWorkItem?
     private var watchCancellable: AnyCancellable?
@@ -664,14 +661,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         watchCancellable = model.$projects.sink { [weak self] projects in
             self?.watch(projects)
         }
+        model.presentSettings = { [weak self] in self?.showSettings() }
         model.refresh()
-        if !UserDefaults.standard.bool(forKey: "welcomeShown") {
+        if let requested = LaunchRequest.view(from: CommandLine.arguments) {
+            present(requested)
+        } else if !UserDefaults.standard.bool(forKey: "welcomeShown") {
             UserDefaults.standard.set(true, forKey: "welcomeShown")
             let alert = NSAlert()
             alert.messageText = L10n.text("welcome.title")
             alert.informativeText = L10n.text("welcome.body")
             alert.addButton(withTitle: L10n.text("welcome.ok"))
             alert.runModal()
+        }
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            if let view = LaunchRequest.view(from: url) {
+                present(view)
+            }
+        }
+    }
+
+    func present(_ view: AppView) {
+        switch view {
+        case .bar:
+            openBar()
+        case .card:
+            showCard()
+        case .settings:
+            showSettings()
         }
     }
 
@@ -694,13 +713,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         barWindow?.show()
     }
 
+    private func showCard() {
+        guard let button = statusItem?.button else { return }
+        model.refresh()
+        if !popover.isShown {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
+    }
+
+    private func showSettings() {
+        if settingsWindow == nil {
+            let host = NSHostingController(rootView: SettingsView(model: model))
+            let window = NSWindow(contentViewController: host)
+            window.title = "ChatBar"
+            window.styleMask = [.titled, .closable]
+            window.isReleasedWhenClosed = false
+            settingsWindow = window
+        }
+        settingsWindow?.center()
+        settingsWindow?.makeKeyAndOrderFront(nil)
+        if #available(macOS 14.0, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
     private func toggleCard() {
         guard let button = statusItem?.button else { return }
         if popover.isShown {
             popover.performClose(nil)
         } else {
-            model.refresh()
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            showCard()
         }
     }
 
@@ -796,8 +840,13 @@ final class DropView: NSView {
     }
 }
 
-let appDelegate = AppDelegate()
-let application = NSApplication.shared
-application.setActivationPolicy(.accessory)
-application.delegate = appDelegate
-application.run()
+@main
+enum ChatBarMain {
+    static func main() {
+        let app = NSApplication.shared
+        let delegate = AppDelegate()
+        app.delegate = delegate
+        app.setActivationPolicy(.accessory)
+        app.run()
+    }
+}

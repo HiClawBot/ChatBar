@@ -188,7 +188,12 @@ final class BarWindowController {
     }
 
     func show() {
+        window.center()
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        if #available(macOS 14.0, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 }

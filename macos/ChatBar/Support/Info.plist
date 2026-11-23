@@ -26,6 +26,17 @@
   <true/>
   <key>NSAppleEventsUsageDescription</key>
   <string>ChatBar places two Finder windows side by side. It does not control a browser or any chat app.</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>bot.hiclaw.chatbar</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>chatbar-app</string>
+      </array>
+    </dict>
+  </array>
   <key>CFBundleLocalizations</key>
   <array>
     <string>zh-Hans</string>
