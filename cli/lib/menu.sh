@@ -39,14 +39,38 @@ cb_cmd_swiftbar_menu() {
       fi
     done
   fi
+  local headline="现在：先添加项目"
+  local headline_state="no_project"
+  local headline_enc=""
+  if [[ "${#CB_P_NAME[@]}" -gt 0 ]]; then
+    local current="" idx=0
+    current="$(cb_current_name 2>/dev/null || true)"
+    if [[ -n "$current" ]]; then
+      for i in "${!CB_P_NAME[@]}"; do
+        if [[ "${CB_P_NAME[$i]}" == "$current" ]]; then
+          idx="$i"
+          break
+        fi
+      done
+    fi
+    cb_load_project_fields "$idx"
+    cb_next_fields
+    headline="$CB_NEXT_TEXT"
+    headline_state="$CB_NEXT_STATE"
+    headline_enc="$(cb_b64enc "$CB_NAME")"
+  fi
   if [[ "$replies" -gt 0 ]]; then
-    printf 'ChatBar %s | sfimage=tray.and.arrow.down color=#C2410C\n' "$replies"
-  elif [[ "$ready" -gt 0 ]]; then
-    printf 'ChatBar | sfimage=shippingbox color=#1D4ED8\n'
+    printf '%s | sfimage=tray.and.arrow.down color=#C2410C size=16\n' "$(cb_menu_title_safe "$headline")"
+  elif [[ "$ready" -gt 0 || "$headline_state" == "ready" ]]; then
+    printf '%s | sfimage=shippingbox color=#1D4ED8 size=16\n' "$(cb_menu_title_safe "$headline")"
   else
-    printf 'ChatBar | sfimage=arrow.left.arrow.right\n'
+    printf '%s | sfimage=arrow.left.arrow.right size=16\n' "$(cb_menu_title_safe "$headline")"
   fi
   printf '%s\n' '---'
+  if [[ "$headline_state" == "ready" && -n "$headline_enc" ]]; then
+    printf '就做本地这步 | bash=%s param1=handoff-now param2=b64:%s terminal=false refresh=true\n' \
+      "$bin" "$headline_enc"
+  fi
   if [[ "${#CB_P_NAME[@]}" -eq 0 ]]; then
     printf '还没有项目 | bash=%s param1=project param2=add-interactive terminal=true refresh=true\n' "$bin"
   else

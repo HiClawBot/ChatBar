@@ -1,5 +1,6 @@
 # Build the planner pack. MIT License.
 # Stable file: <handoff>/outbox/to_planner.md
+# Drag file for this round: <handoff>/outbox/to_chatgpt_R00N.md
 # Drag that file into the planner chat yourself (ChatGPT is the default example).
 
 cb_git_excludes() {
@@ -228,6 +229,7 @@ cb_cmd_pack() {
     } >> "$redacted"
     cb_warn "redacted ${redacted_count} likely secret line(s) in the pack"
   fi
+  CB_DOWNLOAD_NAME="$(cb_reply_download_name "$CB_NAME" "$round")"
   cb_print_delivery_section "$reply_file" "$base_commit" "$(cb_round_label "$round")" >> "$redacted"
 
   local outdir
@@ -239,8 +241,17 @@ cb_cmd_pack() {
   done
   shopt -u nullglob
   local stable="${outdir}/to_planner.md"
+  local round_pack="${outdir}/$(cb_pack_filename "$round")"
   local snapshot="${outdir}/to_planner-${stamp}-r${round}.md"
+  local old_round
+  shopt -s nullglob
+  for old_round in "$outdir"/to_chatgpt_R*.md; do
+    [[ "$old_round" == "$round_pack" ]] && continue
+    rm -f "$old_round"
+  done
+  shopt -u nullglob
   cat "$redacted" | cb_atomic_write "$stable"
+  cat "$redacted" | cb_atomic_write "$round_pack"
   cat "$redacted" | cb_atomic_write "$snapshot"
   cb_write_opener_files "$opener"
 

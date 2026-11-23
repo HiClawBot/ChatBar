@@ -17,6 +17,34 @@ cb_notify() {
   osascript -e "display notification \"${body}\" with title \"${title}\"" >/dev/null 2>&1 || true
 }
 
+# Copy the opener and, on macOS, also place the pack file on the pasteboard.
+# A later Cmd+V can paste both. This only touches the local pasteboard.
+cb_clipboard_bundle() {
+  local text="$1"
+  local file="$2"
+  if [[ -n "${CHATBAR_NO_CLIPBOARD:-}" ]]; then
+    printf 'clipboard:%s\n' "$file"
+    return 0
+  fi
+  cb_clipboard_copy "$text"
+  [[ "$(uname -s)" == "Darwin" ]] || return 0
+  command -v osascript >/dev/null 2>&1 || return 0
+  [[ -f "$file" ]] || return 0
+  osascript - "$text" "$file" <<'APPLESCRIPT' >/dev/null 2>&1 || true
+use framework "Foundation"
+use framework "AppKit"
+on run argv
+  set theText to item 1 of argv
+  set thePath to item 2 of argv
+  set pb to current application's NSPasteboard's generalPasteboard()
+  set fileURL to current application's NSURL's fileURLWithPath:thePath
+  pb's clearContents()
+  pb's writeObjects:{fileURL}
+  pb's setString:theText forType:"public.utf8-plain-text"
+end run
+APPLESCRIPT
+}
+
 cb_clipboard_copy() {
   local text="$1"
   if [[ -n "${CHATBAR_NO_CLIPBOARD:-}" ]]; then

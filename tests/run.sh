@@ -159,6 +159,7 @@ mkdir -p "$WS"
 "$CHATBAR" pack --topic >/dev/null 2>"$TMP/pack.err" || true
 pack_out="$("$CHATBAR" pack)"
 assert_file "$HANDOFF/①发出_拖给规划聊天/to_planner.md"
+assert_file "$HANDOFF/①发出_拖给规划聊天/to_chatgpt_R001.md"
 pack_body="$(cat "$HANDOFF/①发出_拖给规划聊天/to_planner.md")"
 assert_contains "$pack_body" "round 1" "opener round"
 assert_contains "$pack_body" "planner" "opener role"
@@ -189,7 +190,7 @@ assert_contains "$open_out" "opener:" "open copies opener"
 assert_contains "$open_out" "项目甲_R001_reply.md" "open opener asks for the reply file"
 assert_contains "$open_out" "reveal:" "open reveals"
 assert_contains "$open_out" "layout:outbox-left,inbox-right" "side by side"
-assert_contains "$open_out" "①发出_拖给规划聊天/to_planner.md" "left is the pack"
+assert_contains "$open_out" "①发出_拖给规划聊天/to_chatgpt_R001.md" "left is the round file"
 assert_contains "$open_out" "②收回_规划聊天回复拖到这里" "right is inbox"
 status="$("$CHATBAR" status)"
 assert_contains "$status" "pack_state=presented" "presented after open"
@@ -453,6 +454,63 @@ case "$moved" in
   */已归档/[0-9][0-9][0-9][0-9]-[0-9][0-9]/R001_*) ;;
   *) fail "previous round was not archived under YYYY-MM/R001: ${moved}" ;;
 esac
+
+# next step: one sentence per state, exact round file
+AREPO="$TMP/agents-bar-repo"
+mkdir -p "$AREPO"
+git init -q "$AREPO"
+git -C "$AREPO" config user.email "chatbar-test@example.com"
+git -C "$AREPO" config user.name "ChatBar Test"
+printf 'a\n' > "$AREPO/main.py"
+git -C "$AREPO" add main.py
+git -C "$AREPO" commit -q -m init
+AHANDOFF="$TMP/agents-bar 交接"
+"$CHATBAR" project add --name "agents-bar" --repo "$AREPO" --handoff "$AHANDOFF" >/dev/null
+need="$("$CHATBAR" next agents-bar)"
+assert_eq "$need" "现在：让 agent 跑 chatbar pack，你先不用做事" "next before pack"
+need_json="$("$CHATBAR" next --json agents-bar)"
+assert_contains "$need_json" '"state":"need_pack"' "next json need_pack"
+assert_contains "$need_json" '"text":"现在：让 agent 跑 chatbar pack，你先不用做事"' "next json text"
+printf 'reply-one\n' > "$TMP/ab-r1.md"
+"$CHATBAR" ingest --project "agents-bar" "$TMP/ab-r1.md" >/dev/null
+got="$("$CHATBAR" next agents-bar)"
+assert_eq "$got" "已收到 R001，交给 agent 处理中，你不用做事" "next inbox new"
+got_json="$("$CHATBAR" next --json --project agents-bar)"
+assert_contains "$got_json" '"state":"inbox"' "next json inbox"
+assert_contains "$got_json" '"round":1' "next json inbox round"
+"$CHATBAR" archive --project "agents-bar" >/dev/null
+"$CHATBAR" pack --project "agents-bar" >/dev/null
+assert_file "$AHANDOFF/①发出_拖给ChatGPT/to_chatgpt_R002.md"
+ready="$("$CHATBAR" next agents-bar)"
+assert_eq "$ready" "现在：① 点『复制给 g 的话』→ ② 在 g 里 Cmd+V → ③ 把 to_chatgpt_R002.md 拖进去 → ④ 发送" "next ready names the file"
+ready_json="$("$CHATBAR" next agents-bar --json)"
+assert_contains "$ready_json" '"state":"ready"' "next json ready"
+assert_contains "$ready_json" '"file":"to_chatgpt_R002.md"' "next json exact file"
+assert_contains "$ready_json" '"reply_file":"agents-bar_round2_reply.zip"' "next json download name"
+assert_contains "$(cat "$AHANDOFF/①发出_拖给ChatGPT/to_chatgpt_R002.md")" "agents-bar_round2_reply.zip" "pack asks for that download"
+"$CHATBAR" project use agents-bar >/dev/null
+menu_next="$("$CHATBAR" swiftbar-menu)"
+assert_contains "$menu_next" "现在：① 点『复制给 g 的话』" "menu top line is the action"
+assert_contains "$menu_next" "to_chatgpt_R002.md" "menu names the file"
+assert_contains "$menu_next" "就做本地这步" "menu one local step"
+assert_contains "$menu_next" "param1=handoff-now" "menu local step command"
+local_out="$("$CHATBAR" handoff-now agents-bar)"
+assert_contains "$local_out" "clipboard:" "handoff copies"
+assert_contains "$local_out" "reveal:" "handoff reveals"
+assert_contains "$local_out" "to_chatgpt_R002.md" "handoff selects the round file"
+still="$("$CHATBAR" next agents-bar)"
+assert_eq "$still" "$ready" "local step does not mark the message sent"
+"$CHATBAR" open agents-bar >/dev/null
+wait="$("$CHATBAR" next agents-bar)"
+assert_eq "$wait" "等 g 回复，回完点下载 agents-bar_round2_reply.zip" "next waiting names the download"
+wait_json="$("$CHATBAR" next --json agents-bar)"
+assert_contains "$wait_json" '"state":"waiting"' "next json waiting"
+"$CHATBAR" project use agents-bar >/dev/null
+menu_wait="$("$CHATBAR" swiftbar-menu)"
+assert_contains "$menu_wait" "等 g 回复，回完点下载 agents-bar_round2_reply.zip" "menu waiting line"
+if printf '%s' "$menu_wait" | grep -q '就做本地这步'; then
+  fail "local step shown while waiting"
+fi
 
 # safety: no chat UI automation
 if grep -RInE 'playwright|puppeteer|api\.openai\.com|browser-cookie|tell application "(Safari|Google Chrome|ChatGPT)"|System Events|keystroke' \

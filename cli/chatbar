@@ -75,6 +75,8 @@ Sending in the planner chat is always your own drag. No web automation.
   chatbar pack [--project NAME | --repo PATH] [--full] [--quiet]
   chatbar open [NAME]              # copy opener, open outbox (left) + inbox (right)
   chatbar reveal [NAME]            # open the two folders, no clipboard change
+  chatbar next [NAME] [--json]    # the one action to do now
+  chatbar handoff-now [NAME]       # copy opener and select to_chatgpt_R00N.md
   chatbar copy-opener [NAME]
   chatbar ingest [--project NAME] FILE...
   chatbar apply [NAME]             # git apply --3way on branch chatbar/R<NNN>; main stays put
@@ -108,6 +110,8 @@ cb_main() {
     open-root) cb_cmd_open_root "$@" ;;
     reveal) cb_cmd_reveal "$@" ;;
     copy-opener) cb_cmd_copy_opener "$@" ;;
+    next) cb_cmd_next "$@" ;;
+    handoff-now) cb_cmd_handoff_now "$@" ;;
     ingest) cb_cmd_ingest "$@" ;;
     apply) cb_cmd_apply "$@" ;;
     ingest-drop) cb_cmd_ingest_drop "$@" ;;

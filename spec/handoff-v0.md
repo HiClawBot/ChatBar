@@ -44,6 +44,10 @@ The log role folder holds `轮次总表.md` and `events.jsonl` (`spec_version`, 
 
 `chatbar apply` checks out `chatbar/R<NNN>` from `base_commit` and runs `git apply --3way`. It does not use `--force` and does not move `main`. Optional `test_command` in `projects.yaml` runs afterward. A clean apply is committed on that branch so an agent can open a PR.
 
+## Next step
+
+The drag file for round N is `outbox/to_chatgpt_R00N.md` (also written as `to_planner.md`). `chatbar next` prints one short Chinese sentence for the current action. `chatbar next --json` returns `text`, `state` (`need_pack`, `ready`, `waiting`, `inbox`, `no_project`), `round`, `file`, and `reply_file` so a native menu bar can show the same sentence. `chatbar handoff-now` copies the opener and selects that exact file in Finder. It does not click or type into any chat app.
+
 ## Writes
 
 Manifests and state files are written to a temp file in the same directory, then renamed. A `.lock` directory serializes writers.

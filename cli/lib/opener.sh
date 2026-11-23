@@ -6,6 +6,21 @@ cb_round_label() {
   printf 'R%03d' "${1:-0}"
 }
 
+# The only file the user drags for this round.
+cb_pack_filename() {
+  printf 'to_chatgpt_%s.md' "$(cb_round_label "$1")"
+}
+
+# The download ChatGPT should offer after this round.
+cb_reply_download_name() {
+  local name="$1"
+  local round="$2"
+  local safe
+  safe="$(cb_sanitize_filename "$name")"
+  safe="${safe// /-}"
+  printf '%s_round%s_reply.zip' "$safe" "$round"
+}
+
 cb_reply_basename() {
   local name="$1"
   local round="$2"
@@ -51,8 +66,10 @@ cb_print_delivery_section() {
 如果要改代码：请针对当前 main 提交 \`${hash}\` 给出 unified diff（\`\`\`diff 代码块，或 .patch 文件），也可以给带路径标题的完整文件（例如 \`File: src/hello.py\` 后接代码块）。
 不要在仓库里提交。本地助手会在新分支 \`${label}\`（chatbar/${label}）上 \`git apply --3way\`，跑测试，再开 PR。main 保持不动。有冲突就停，不会强行套用。
 
+下载时请把文件命名为 \`${CB_DOWNLOAD_NAME:-reply.zip}\`。
+
 Return a downloadable Markdown file named \`${file}\`.
-If there are attachments, put them in one zip.
+If there are attachments, put them in one zip. Name the download \`${CB_DOWNLOAD_NAME:-reply.zip}\`.
 Do not reply with only a share link or a canvas link (login-gated links cannot be read locally).
 Do not reply with only inline chat text.
 
