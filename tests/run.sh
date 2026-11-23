@@ -257,7 +257,8 @@ assert_contains "$(cat "$HANDOFF/记录/轮次总表.md")" "手动收一轮" "ex
 
 # open handoff and workspace
 hshow="$("$CHATBAR" open-handoff "项目甲")"
-assert_contains "$hshow" "reveal:${HANDOFF}" "open handoff"
+phys_handoff="$(cd -P "$HANDOFF" && pwd)"
+assert_contains "$hshow" "reveal:${phys_handoff}" "open handoff"
 rshow="$("$CHATBAR" open-root "项目甲")"
 assert_contains "$rshow" "reveal:${WS}" "open workspace"
 
