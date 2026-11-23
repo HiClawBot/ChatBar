@@ -1,4 +1,4 @@
-# ChatBar
+# ChatBar.org
 
 ChatBar：macOS 菜单栏小工具，在 ChatGPT 和本地编码助手（Codex 等）之间拖拽交接文件，不做任何网页自动化。
 
@@ -42,7 +42,7 @@ cd ChatBar
 
 脚本会 `brew install --cask swiftbar`（失败再试 `brew install swiftbar`），把插件链进插件目录（仓库可以在带中文的外置盘上），然后**重启 SwiftBar**。`chatbar` 命令链到 `~/.local/bin`。可选 `./scripts/install.sh --launchd` 监听 inbox。
 
-安装结束时你应该看到一条 ChatBar 通知：「ChatBar 已就绪，看菜单栏右上角的 ⇄ ChatBar」。菜单栏右上角出现 **⇄ ChatBar**。
+安装结束时你应该看到一条 ChatBar 通知：「ChatBar 已就绪，请查看菜单栏右上角」。菜单栏右上角出现图标和当前步骤。
 
 安装脚本会在第一次打开 SwiftBar 之前写好它的偏好，所以**不该**再看到这些 SwiftBar 自己的对话框：
 
@@ -56,7 +56,7 @@ cd ChatBar
 - Homebrew 下载 SwiftBar 时自己的英文安装日志
 - macOS 第一次打开从网络安装的 SwiftBar 时，系统的「来自互联网的应用」确认。这是系统提示，不是 ChatBar 的
 
-The script links the plugin even when the repo path is on an external volume and contains Chinese, then restarts SwiftBar so the menu item shows up. You should get a ChatBar notification: "ChatBar is ready. Look for ⇄ ChatBar at the right of the menu bar."
+The script links the plugin even when the repo path is on an external volume and contains Chinese, then restarts SwiftBar so the menu item shows up. You should get a ChatBar notification: "ChatBar is ready. Check the right of the menu bar."
 
 The installer writes SwiftBar's preferences before the first launch, so you should **not** see SwiftBar's own dialogs for choosing a plugin folder or for Sparkle's "check for updates automatically?". Automatic update checks are turned off (`SUEnableAutomaticChecks` is false) so that prompt stays away. You can turn checks back on later in SwiftBar's settings.
 
@@ -85,12 +85,17 @@ chatbar project add --name "项目甲" --repo ~/code/foo --with-templates
         +-------- chatbar ingest（自动解压、改名、识别补丁） --+
 ```
 
-1. 助手做完一轮后运行 `chatbar pack`。菜单栏标题只有几个字（例如「复制」）。唯一的按钮是「复制给 g」：开场白进剪贴板，Finder 选中 `to_chatgpt_R00N.md`。你自己去 g 里粘贴、拖入、发送。
-2. 你把包拖进 ChatGPT，粘贴开场白，自己点发送。`chatbar next` 会改成「等 g 回复，回完点下载 {项目}_roundN_reply.zip」。
-3. 你把 ChatGPT 的回复（`.md` / `.txt` / `.zip` / `.pdf` / 图片，名字随意）拖到菜单栏图标，或拖进该项目的收回夹。
-4. ChatBar 解压、按轮次改名、写入 `NEW.json`。若回复里有代码，见下一节。
+1. 助手运行 `chatbar pack` 后，「新任务」亮红点。点「复制给 g 的话」，开场白进剪贴板。
+2. 在 g 里手动粘贴，回到菜单点「我已粘贴」。
+3. 点「拖文件」，Finder 选中这一轮的 `to_chatgpt_R00N.md`。手动拖入 g 并发送，然后点「我已拖入并发送」。需要回退时，打开「更多 → 上一步」。
+4. 等 g 回复，手动下载 ZIP。可以把 ZIP 或其他回复文件拖到 ChatBar 图标，也可以放入项目收回夹后点「更多 → 刷新」。开启自动收发时，符合当前项目和轮次的 ZIP 会从本机下载夹自动收件。
+5. 收到回复后菜单亮红点。点「收好了」打开收件位置，包括已归档的回复。
 
-菜单只有一行下一步、一个对应当前状态的按钮，和项目状态。打包、打开目录、归档、刷新、添加项目都在「更多」里。点项目行只是切换当前项目。开场白按轮次现生成：第 1 轮是项目介绍、角色和附件说明；之后是「上一轮你建议了 X，这一轮我们改了 Y，请审阅并回答问题」。问题来自 `status.md`。助手也可以在打包前写出发出夹里的 `opener.md` 覆盖它。项目模板是 `templates/opener-round1.md` 和 `templates/opener-next.md`。发出夹里有可见的 `给GPT的话.txt`，以及双击即可复制的 `复制开场白.command`。
+项目行显示状态，点击即切换当前项目。新的回复、待发包或本地助手写入的 `agent-result.json` 会在对应项目行显示红点。打包、打开目录、归档、刷新、添加项目和设置都在「更多」里。
+
+「自动收发」总开关与项目开关默认为关。两处都开启后，ChatBar 才会收取下载夹里的 `{项目}_roundN_reply.zip`。已安装 ChatBar Git 钩子的项目也会在提交后自动打包。粘贴、拖入聊天、发送和下载依然由人完成。
+
+开场白按轮次现生成：第 1 轮是项目介绍、角色和附件说明；之后是「上一轮你建议了 X，这一轮我们改了 Y，请审阅并回答问题」。问题来自 `status.md`。助手也可以在打包前写出发出夹里的 `opener.md` 覆盖它。项目模板是 `templates/opener-round1.md` 和 `templates/opener-next.md`。发出夹里有可见的 `给GPT的话.txt`，以及双击即可复制的 `复制开场白.command`。
 
 发出夹和收回夹的显示名可以改。默认是 `①发出_拖给ChatGPT` 和 `②收回_ChatGPT回复拖到这里`。`chat_name` 换成「规划聊天」时，文件夹会变成 `①发出_拖给规划聊天`。归档是 `已归档`，记录是 `记录`。规范见 `spec/handoff-v0.md`。
 
@@ -131,14 +136,17 @@ The planner chat should not commit. It returns a unified diff against the main c
 
 ## 命令 / Commands
 
-`pack`、`next`、`handoff-now`、`open`、`reveal`、`copy-opener`、`ingest`、`apply`、`archive`、`status`、`project add|list|use`。`chatbar next --json` 给原生菜单栏同一句中文。`chatbar help` 列出全部。
+`pack`、`next`、`handoff-now`、`open`、`reveal`、`copy-opener`、`ingest`、`apply`、`archive`、`status`、`project add|list|use`。`chatbar next --json` 提供当前项目和步骤的结构化数据，字段见 [交接规范](spec/handoff-v0.md#next-step)。`chatbar help` 列出全部。
+
+## 检查更新 / Updates
+
+SwiftBar 每天后台检查一次公开发布。看到「有更新」时，点它才会下载和安装。也可以在「更多」里手动检查更新。`chatbar update` 下载 GitHub codeload 的源码压缩包并校验 SHA-256。旧版保存在安装目录旁的 `.prev-时间戳` 备份中，`chatbar update --rollback` 恢复上一份备份。请将交接目录和项目放在安装目录之外。
+
+发布者用与 `VERSION` 一致的稳定标签（例如 `v0.1.1`）发布，并上传 `chatbar-source.sha256`。文件为一行 `<sha256> <40 位提交 SHA>`，哈希取公开地址 `https://codeload.github.com/HiClawBot/ChatBar/tar.gz/<提交 SHA>` 实际返回的压缩包字节。应从标签所指的提交生成校验文件，再将正式发布设为最新。
 
 ## 手动验收 / Manual check
 
-真实的 SwiftBar 拖放要在 Mac 上试。清单：
-
-1. `./scripts/install.sh` 之后菜单出现 ChatBar。
-2. 菜单栏标题是短的。有新回复时标题变成「新任务」，项目名前有圆点。点「复制给 g」后，Finder 选中 `to_chatgpt_R00N.md`，剪贴板里是开场白。聊天软件要自己粘贴、自己发送。
-3. 「自动收发」默认关。打开后，后台才会自动收本机文件。检查更新在「更多」里，点「有更新」才安装。
-4. 把一个 zip 或 md 拖到图标上，收回夹或归档里出现改名后的文件；若是 diff，`NEW.json` 的 type 为 `code_patch`。
-5. `chatbar apply` 后当前分支是 `chatbar/R00N`，`main` 的提交没有变。
+1. 安装后，ChatBar 用图标和短标题显示当前步骤。
+2. 从「复制给 g 的话」开始。核对剪贴板后点「我已粘贴」，下一步才可在 Finder 选中文件。
+3. 点「我已拖入并发送」后，菜单进入「等 g」。将测试 ZIP 拖到 ChatBar 图标，菜单亮红点。点「收好了」确认可查看回复。
+4. 若回复含有代码，`chatbar apply` 后当前分支是 `chatbar/R00N`。

@@ -1,252 +1,183 @@
-# Install updates from public GitHub. Never touches the handoff folder's rounds.
-# A check does not install. Install runs only when the user asks.
+# Public, checksummed source releases. Only an explicit update swaps the install.
 
-cb_update_root() {
-  if [[ -n "${CHATBAR_INSTALL_ROOT:-}" ]]; then
-    (cd -P "$CHATBAR_INSTALL_ROOT" && pwd)
-    return 0
-  fi
-  cb_install_root
+CB_RELEASES_URL=https://github.com/HiClawBot/ChatBar/releases
+CB_CODELOAD_URL=https://codeload.github.com/HiClawBot/ChatBar/tar.gz
+
+cb_version() {
+  cb_read_line "$(cb_install_root)/VERSION" 0.1.0
 }
 
-cb_update_repo() {
-  printf '%s' "${CHATBAR_UPDATE_REPO:-HiClawBot/ChatBar}"
+cb_update_cache() {
+  printf '%s/update-check' "$(cb_home)"
 }
 
-cb_update_status_path() {
-  printf '%s/update-status' "$(cb_home)"
+cb_update_version_after() {
+  local candidate="$1" installed="$2" i
+  local -a a b
+  local pattern='^[0-9]{1,6}(\.[0-9]{1,6}){2,3}$'
+  [[ "$candidate" =~ $pattern && "$installed" =~ $pattern ]] || return 1
+  IFS=. read -ra a <<< "$candidate"
+  IFS=. read -ra b <<< "$installed"
+  for i in 0 1 2 3; do
+    if (( 10#${a[$i]:-0} > 10#${b[$i]:-0} )); then return 0; fi
+    if (( 10#${a[$i]:-0} < 10#${b[$i]:-0} )); then return 1; fi
+  done
+  return 1
 }
 
-cb_update_stamp_path() {
-  printf '%s/update-checked' "$(cb_home)"
-}
-
-cb_update_flag_path() {
-  printf '%s/update-available' "$(cb_home)"
-}
-
-cb_update_prev_record() {
-  printf '%s/update-prev' "$(cb_home)"
-}
-
-cb_update_local_rev() {
-  local root="$1"
-  if [[ -f "${root}/INSTALL_REV" ]]; then
-    tr -d '\r\n' < "${root}/INSTALL_REV"
-  else
-    printf 'unknown'
-  fi
-}
-
-cb_update_write_status() {
-  local state="$1"
-  cb_ensure_home
-  printf 'state=%s\nrev=%s\nsha256=%s\nurl=%s\n' \
-    "$state" "${CB_UPD_REV:-}" "${CB_UPD_SHA:-}" "${CB_UPD_URL:-}" \
-    | cb_atomic_write "$(cb_update_status_path)"
-  if [[ "$state" == "available" ]]; then
-    printf '%s\n' "${CB_UPD_REV}" | cb_atomic_write "$(cb_update_flag_path)"
-  else
-    rm -f "$(cb_update_flag_path)"
-  fi
+cb_update_available() {
+  local day tag
+  IFS=' ' read -r day tag <<< "$(cb_read_line "$(cb_update_cache)" '')"
+  cb_update_version_after "${tag#v}" "$(cb_version)"
 }
 
 cb_update_curl() {
-  local dest="$1"
-  local url="$2"
-  command -v curl >/dev/null 2>&1 || cb_die "检查更新需要 curl"
-  curl -fsSL --max-time 60 -H "User-Agent: chatbar" -o "$dest" "$url" || cb_die "检查更新失败"
+  curl -q --proto '=https' --proto-redir '=https' --location \
+    --silent --show-error --connect-timeout 5 --max-time 30 "$@"
 }
 
-cb_update_resolve_live() {
-  local repo body tag sha sums
-  repo="$(cb_update_repo)"
-  body="$(mktemp)"
-  command -v curl >/dev/null 2>&1 || cb_die "检查更新需要 curl"
-  if curl -fsSL --max-time 30 -H "Accept: application/vnd.github+json" -H "User-Agent: chatbar" \
-    -o "$body" "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null; then
-    tag="$(sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' "$body" | head -n 1)"
+cb_update_latest_tag() {
+  local status tag
+  status="$(cb_update_curl --output /dev/null --write-out '%{http_code} %{url_effective}' \
+    "${CB_RELEASES_URL}/latest")" || return 1
+  case "$status" in
+    "200 ${CB_RELEASES_URL}"|"404 "*) return 0 ;;
+    "200 ${CB_RELEASES_URL}/tag/v"*) tag="${status##*/}" ;;
+    *) return 1 ;;
+  esac
+  [[ "$tag" =~ ^v[0-9]{1,6}(\.[0-9]{1,6}){2,3}$ ]] || return 1
+  printf '%s' "$tag"
+}
+
+cb_update_check() (
+  local mode="$1" home cache today last old_tag tag
+  home="$(cb_home)"
+  cache="$(cb_update_cache)"
+  today="$(cb_today)"
+  IFS=' ' read -r last old_tag <<< "$(cb_read_line "$cache" '')"
+  if [[ "$mode" == background && "$last" == "$today" ]]; then exit 0; fi
+  cb_lock "$home/.update" || exit 1
+  trap 'cb_unlock "$home/.update"' EXIT
+  IFS=' ' read -r last old_tag <<< "$(cb_read_line "$cache" '')"
+  if [[ "$mode" == background && "$last" == "$today" ]]; then exit 0; fi
+  if ! tag="$(cb_update_latest_tag)"; then
+    cb_atomic_write_string "$cache" "$today $old_tag"
+    cb_die "检查更新失败"
   fi
-  if [[ -n "${tag:-}" ]]; then
-    CB_UPD_REV="$tag"
-    CB_UPD_URL="https://codeload.github.com/${repo}/tar.gz/refs/tags/${tag}"
-    sums="$(sed -n 's/.*"browser_download_url": *"\([^"]*SHA256SUMS[^"]*\)".*/\1/p' "$body" | head -n 1)"
-    if [[ -n "$sums" ]]; then
-      local sumfile
-      sumfile="$(mktemp)"
-      cb_update_curl "$sumfile" "$sums"
-      CB_UPD_SHA="$(awk 'NR==1 { print $1 }' "$sumfile")"
-      rm -f "$sumfile"
+  cb_atomic_write_string "$cache" "$today $tag"
+  if [[ "$mode" == foreground ]]; then
+    if cb_update_version_after "${tag#v}" "$(cb_version)"; then
+      cb_note "有更新 $tag"
     else
-      CB_UPD_SHA=""
-    fi
-    rm -f "$body"
-    return 0
-  fi
-  rm -f "$body"
-  body="$(mktemp)"
-  cb_update_curl "$body" "https://api.github.com/repos/${repo}/commits/main"
-  sha="$(sed -n 's/.*"sha": *"\([0-9a-f]*\)".*/\1/p' "$body" | head -n 1)"
-  rm -f "$body"
-  [[ -n "$sha" ]] || cb_die "检查更新失败"
-  CB_UPD_REV="$sha"
-  CB_UPD_URL="https://codeload.github.com/${repo}/tar.gz/${sha}"
-  CB_UPD_SHA=""
-}
-
-cb_update_resolve() {
-  CB_UPD_REV=""
-  CB_UPD_SHA=""
-  CB_UPD_URL=""
-  if [[ -n "${CHATBAR_UPDATE_FIXTURE:-}" ]]; then
-    CB_UPD_REV="$(tr -d '\r\n' < "${CHATBAR_UPDATE_FIXTURE}/remote-rev")"
-    CB_UPD_SHA="$(tr -d '\r\n' < "${CHATBAR_UPDATE_FIXTURE}/remote-sha256")"
-    CB_UPD_URL="${CHATBAR_UPDATE_FIXTURE}/chatbar.tar.gz"
-    return 0
-  fi
-  cb_update_resolve_live
-}
-
-cb_update_fetch() {
-  local dest="$1"
-  if [[ -f "$CB_UPD_URL" ]]; then
-    cp "$CB_UPD_URL" "$dest"
-    return 0
-  fi
-  cb_update_curl "$dest" "$CB_UPD_URL"
-}
-
-cb_update_verify() {
-  local file="$1"
-  local actual
-  actual="$(cb_sha256 "$file")"
-  if [[ -n "${CB_UPD_SHA:-}" ]]; then
-    if [[ "$actual" != "$CB_UPD_SHA" ]]; then
-      cb_die "sha256 不符，已停止安装"
-    fi
-    return 0
-  fi
-  local tmp top raw repo ref
-  tmp="$(mktemp -d)"
-  tar -xzf "$file" -C "$tmp"
-  top="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-  [[ -f "${top}/cli/chatbar" ]] || {
-    rm -rf "$tmp"
-    cb_die "更新包不完整"
-  }
-  raw="$(mktemp)"
-  repo="$(cb_update_repo)"
-  ref="$CB_UPD_REV"
-  if ! curl -fsSL --max-time 30 -H "User-Agent: chatbar" \
-    -o "$raw" "https://raw.githubusercontent.com/${repo}/${ref}/cli/chatbar"; then
-    rm -rf "$tmp" "$raw"
-    cb_die "没有 sha256，不安装"
-  fi
-  if ! cmp -s "${top}/cli/chatbar" "$raw"; then
-    rm -rf "$tmp" "$raw"
-    cb_die "sha256 不符，已停止安装"
-  fi
-  CB_UPD_SHA="$actual"
-  rm -rf "$tmp" "$raw"
-}
-
-cb_update_check() {
-  cb_update_resolve
-  local root local_rev
-  root="$(cb_update_root)"
-  local_rev="$(cb_update_local_rev "$root")"
-  if [[ "$local_rev" == "$CB_UPD_REV" ]]; then
-    cb_update_write_status "current"
-    cb_note "已是最新"
-    return 0
-  fi
-  local tar
-  tar="$(mktemp)"
-  cb_update_fetch "$tar"
-  cb_update_verify "$tar"
-  rm -f "$tar"
-  cb_update_write_status "available"
-  cb_note "有更新 ${CB_UPD_REV}"
-}
-
-cb_update_check_if_due() {
-  local stamp now then interval
-  stamp="$(cb_update_stamp_path)"
-  interval="${CHATBAR_UPDATE_INTERVAL:-86400}"
-  if [[ -f "$stamp" ]]; then
-    now="$(date +%s)"
-    then="$(tr -d '\r\n' < "$stamp")"
-    if [[ "$then" =~ ^[0-9]+$ ]] && [[ $((now - then)) -lt "$interval" ]]; then
-      return 0
+      cb_note "当前已是最新版本"
     fi
   fi
-  cb_ensure_home
-  date +%s | cb_atomic_write "$stamp"
-  cb_update_check || true
-}
+)
 
-cb_update_install() {
-  cb_update_resolve
-  local root local_rev tar tmp top ts prev
-  root="$(cb_update_root)"
-  local_rev="$(cb_update_local_rev "$root")"
-  if [[ "$local_rev" == "$CB_UPD_REV" ]]; then
-    cb_update_write_status "current"
-    cb_note "已是最新"
-    return 0
+cb_update_guard() {
+  local root="$1" path canonical changes
+  [[ -x "$root/cli/chatbar" && -f "$root/swiftbar/chatbar.1m.sh" ]] ||
+    cb_die "无效的 ChatBar 安装目录"
+  if [[ -e "$root/.git" ]]; then
+    [[ -d "$root/.git" ]] && changes="$(git -C "$root" status --porcelain --untracked-files=all)" &&
+      [[ -z "$changes" ]] ||
+      cb_die "源码工作区有改动或使用了 Git worktree"
   fi
-  tar="$(mktemp)"
-  cb_update_fetch "$tar"
-  cb_update_verify "$tar"
-  tmp="$(mktemp -d)"
-  tar -xzf "$tar" -C "$tmp"
-  top="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-  [[ -n "$top" && -d "$top" ]] || cb_die "更新包不完整"
-  ts="$(date +%Y%m%d-%H%M%S)"
-  prev="${root}.prev-${ts}"
-  cp -a "$root" "$prev"
-  find "$root" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-  cp -a "${top}/." "$root/"
-  printf '%s\n' "$CB_UPD_REV" | cb_atomic_write "${root}/INSTALL_REV"
-  if [[ -f "${root}/cli/chatbar" ]]; then
-    chmod +x "${root}/cli/chatbar" || true
-  fi
-  cb_ensure_home
-  printf 'root=%s\nprev=%s\n' "$root" "$prev" | cb_atomic_write "$(cb_update_prev_record)"
-  cb_update_write_status "current"
-  rm -rf "$tmp" "$tar"
-  cb_note "已安装 ${CB_UPD_REV}"
-  cb_note "备份 ${prev}"
-}
-
-cb_update_rollback() {
-  local record root prev ts failed
-  record="$(cb_update_prev_record)"
-  [[ -f "$record" ]] || cb_die "没有可还原的版本"
-  root="$(sed -n 's/^root=//p' "$record" | head -n 1)"
-  prev="$(sed -n 's/^prev=//p' "$record" | head -n 1)"
-  [[ -n "$root" && -d "$prev" ]] || cb_die "备份不在了"
-  ts="$(date +%Y%m%d-%H%M%S)"
-  failed="${root}.failed-${ts}"
-  mv "$root" "$failed"
-  mv "$prev" "$root"
-  cb_note "已还原 ${root}"
-}
-
-cb_cmd_update() {
-  local mode="install"
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --check) mode="check"; shift ;;
-      --check-if-due) mode="due"; shift ;;
-      --rollback) mode="rollback"; shift ;;
-      *) cb_die "unknown flag: $1" ;;
+  cb_projects_load
+  for path in "$(cb_home)" "${CB_P_HANDOFF[@]+"${CB_P_HANDOFF[@]}"}" \
+    "${CB_P_WORKSPACE[@]+"${CB_P_WORKSPACE[@]}"}" "${CB_P_REPO[@]+"${CB_P_REPO[@]}"}"; do
+    [[ -n "$path" ]] || continue
+    canonical="$(cb_abs_dir "$path")"
+    case "$canonical/" in
+      "$root/"*) cb_die "安装目录内有交接目录或项目：$canonical" ;;
     esac
   done
-  case "$mode" in
-    check) cb_update_check ;;
-    due) cb_update_check_if_due ;;
-    rollback) cb_update_rollback ;;
-    install) cb_update_install ;;
+}
+
+cb_update_backup_name() {
+  local root="$1" kind="$2" stamp backup seq=0
+  stamp="$(cb_now_stamp)"
+  while :; do
+    printf -v backup '%s.%s-%s-%04d' "$root" "$kind" "$stamp" "$seq"
+    [[ -e "$backup" || -L "$backup" ]] || break
+    seq=$((seq + 1))
+  done
+  printf '%s' "$backup"
+}
+
+cb_update_previous() {
+  local root="$1" candidate latest="" LC_ALL=C
+  for candidate in "$root".prev-*; do
+    [[ -d "$candidate" && ! -L "$candidate" && -x "$candidate/cli/chatbar" &&
+      -f "$candidate/swiftbar/chatbar.1m.sh" ]] || continue
+    latest="$candidate"
+  done
+  [[ -n "$latest" ]] || return 1
+  printf '%s' "$latest"
+}
+
+cb_update_install() (
+  local mode="$1" root lock stage="" backup="" payload tag manifest digest commit extra
+  root="$(cb_install_root)"
+  lock="${root}.update-lock"
+  cb_lock "$lock" || exit 1
+  trap '
+    if [[ -n "$backup" && -d "$backup" && ! -e "$root" ]]; then
+      mv "$backup" "$root" || cb_warn "恢复安装目录失败：$backup"
+    fi
+    [[ -z "$stage" ]] || rm -rf "$stage"
+    cb_unlock "$lock"
+  ' EXIT
+  trap 'exit 1' HUP INT TERM
+  cb_update_guard "$root"
+
+  if [[ "$mode" == rollback ]]; then
+    payload="$(cb_update_previous "$root")" || cb_die "没有可回滚的备份"
+    backup="$(cb_update_backup_name "$root" replaced)"
+  else
+    tag="$(cb_update_latest_tag)" || cb_die "检查更新失败"
+    if ! cb_update_version_after "${tag#v}" "$(cb_version)"; then
+      cb_note "当前已是最新版本"
+      exit 0
+    fi
+    manifest="$(cb_update_curl --fail "${CB_RELEASES_URL}/download/${tag}/chatbar-source.sha256")" ||
+      cb_die "版本 $tag 缺少校验文件"
+    IFS=' ' read -r digest commit extra <<< "$manifest"
+    [[ "$digest" =~ ^[0-9a-f]{64}$ && "$commit" =~ ^[0-9a-f]{40}$ && -z "$extra" &&
+      "$manifest" != *$'\n'* ]] || cb_die "校验文件格式无效"
+
+    stage="$(mktemp -d "${root}.stage.XXXXXXXX")"
+    cb_update_curl --fail --output "$stage/source.tar.gz" "${CB_CODELOAD_URL}/${commit}" ||
+      cb_die "下载版本 $tag 失败"
+    [[ "$(cb_sha256 "$stage/source.tar.gz")" == "$digest" ]] || cb_die "SHA-256 校验失败"
+    payload="$stage/source"
+    mkdir "$payload"
+    tar -xzf "$stage/source.tar.gz" -C "$payload" --strip-components 1 \
+      --no-same-owner --no-same-permissions || cb_die "解压版本 $tag 失败"
+    [[ -x "$payload/cli/chatbar" && -x "$payload/swiftbar/chatbar.1m.sh" &&
+      "$(cb_read_line "$payload/VERSION" '')" == "${tag#v}" ]] || cb_die "更新包内容与版本不符"
+    bash -n "$payload/cli/chatbar" && bash -n "$payload/swiftbar/chatbar.1m.sh" ||
+      cb_die "更新包脚本有语法错误"
+    cb_update_guard "$root"
+    backup="$(cb_update_backup_name "$root" prev)"
+  fi
+
+  # Leave the source at the same path so CLI and SwiftBar symlinks keep working.
+  mv "$root" "$backup" || cb_die "无法备份当前安装"
+  [[ ! -e "$root" ]] && mv "$payload" "$root" || cb_die "无法切换安装目录"
+  if [[ "$mode" == rollback ]]; then
+    cb_note "已回滚，原版本保存在 $backup"
+  else
+    cb_note "已更新到 ${tag}，旧版保存在 $backup"
+  fi
+)
+
+cb_cmd_update() {
+  case "${1:-}" in
+    '') cb_update_install install ;;
+    --check) cb_update_check foreground ;;
+    --background|--check-if-due) cb_update_check background ;;
+    --rollback) cb_update_install rollback ;;
+    *) cb_die "usage: chatbar update [--check|--rollback]" ;;
   esac
 }

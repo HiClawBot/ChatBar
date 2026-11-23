@@ -1,93 +1,100 @@
-# Local auto ingest switch. Default off. Does not touch a planner chat.
+# Local auto-exchange only: opted-in Git hooks pack, and sweeps pick up named replies.
 
-cb_auto_global_file() {
-  printf '%s/auto' "$(cb_home)"
-}
-
-cb_auto_global_on() {
-  local file value
-  file="$(cb_auto_global_file)"
-  [[ -f "$file" ]] || return 1
-  value="$(tr -d '\r\n' < "$file")"
-  [[ "$value" == "on" ]]
-}
-
-cb_auto_project_on() {
-  local file value
-  file="${CB_HANDOFF}/auto"
-  [[ -f "$file" ]] || return 1
-  value="$(tr -d '\r\n' < "$file")"
-  [[ "$value" == "on" ]]
-}
-
-cb_auto_word() {
-  if [[ "$1" == "on" ]]; then
-    printf '开'
+cb_auto_enabled() {
+  local path
+  if [[ -n "${1:-}" ]]; then
+    path="$1"
   else
-    printf '关'
+    path="$(cb_home)"
   fi
+  [[ "$(cb_state_get "$path" auto off)" == on ]]
 }
 
 cb_auto_label() {
-  printf '自动收发：%s' "$(cb_auto_word "$1")"
+  if cb_auto_enabled "${1:-}"; then
+    printf '自动收发：开'
+  else
+    printf '自动收发：关'
+  fi
 }
 
-cb_cmd_auto() {
-  local action="${1:-status}"
-  if [[ $# -gt 0 ]]; then
-    shift
-  fi
-  local project=""
-  if [[ "$action" == "toggle-project" ]]; then
-    project="$(cb_decode_cli_arg "${1:-}")"
-    action="toggle"
-    if [[ $# -gt 0 ]]; then
-      shift
-    fi
-  fi
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --project) project="$(cb_decode_cli_arg "${2:-}")"; shift 2 ;;
-      *) cb_die "unknown flag: $1" ;;
-    esac
-  done
-  cb_ensure_home
-  local file value
-  if [[ -n "$project" ]]; then
-    cb_resolve_project_arg "$project"
-    file="${CB_HANDOFF}/auto"
+cb_cmd_auto() (
+  local action="${1:-status}" name="" path value
+  if [[ $# -gt 0 ]]; then shift; fi
+  if [[ "$action" == toggle-project ]]; then action=toggle; fi
+  case "${1:-}" in
+    --project)
+      [[ $# == 2 && -n "$2" ]] || cb_die "missing --project value"
+      name="$2"
+      ;;
+    '') ;;
+    *)
+      [[ $# == 1 ]] || cb_die "expected one project name"
+      name="$1"
+      ;;
+  esac
+  if [[ -n "$name" ]]; then
+    cb_resolve_project_arg "$name"
+    path="$CB_HANDOFF"
   else
-    file="$(cb_auto_global_file)"
+    path="$(cb_home)"
   fi
   case "$action" in
     status)
-      if [[ -n "$project" ]]; then
-        if cb_auto_project_on; then printf 'on\n'; else printf 'off\n'; fi
-      else
-        if cb_auto_global_on; then printf 'on\n'; else printf 'off\n'; fi
-      fi
+      if cb_auto_enabled "$path"; then printf 'on\n'; else printf 'off\n'; fi
+      exit 0
       ;;
     enabled)
-      cb_auto_global_on || return 1
-      if [[ -n "$project" ]]; then
-        cb_auto_project_on || return 1
-      fi
+      cb_auto_enabled && cb_auto_enabled "$path"
+      exit
       ;;
-    on|off)
-      printf '%s\n' "$action" > "$file"
-      cb_note "$(cb_auto_label "$action")"
-      ;;
-    toggle)
-      if [[ -n "$project" ]]; then
-        if cb_auto_project_on; then value="off"; else value="on"; fi
-      else
-        if cb_auto_global_on; then value="off"; else value="on"; fi
-      fi
-      printf '%s\n' "$value" > "$file"
-      cb_note "$(cb_auto_label "$value")"
-      ;;
-    *)
-      cb_die "usage: chatbar auto on|off|toggle|status [--project NAME]"
-      ;;
+    on|off|toggle) ;;
+    *) cb_die "usage: chatbar auto on|off|toggle|status [--project NAME]" ;;
   esac
+  cb_lock "$path" || exit 1
+  trap 'cb_unlock "$path"' EXIT
+  value="$action"
+  if [[ "$action" == toggle ]]; then
+    if cb_auto_enabled "$path"; then value=off; else value=on; fi
+  fi
+  cb_state_set "$path" auto "$value"
+  cb_note "$(cb_auto_label "$path")"
+)
+
+cb_sweep_download() (
+  local name="$1" file round i hits=0
+  cb_resolve_project_arg "$name"
+  cb_auto_enabled && cb_auto_enabled "$CB_HANDOFF" || exit 0
+  cb_lock "$CB_HANDOFF" || exit 1
+  trap 'cb_unlock "$CB_HANDOFF"' EXIT
+  cb_auto_enabled && cb_auto_enabled "$CB_HANDOFF" || exit 0
+  cb_next_fields transfer
+  [[ "$CB_NEXT_STEP" == wait ]] || exit 0
+  file="$CB_NEXT_FILE"
+  round="$CB_NEXT_ROUND"
+  [[ -f "$file" && ! -L "$file" ]] || exit 0
+  [[ "$(cb_mtime "$file")" -ge "$CB_NEXT_SENT_AT" ]] || exit 0
+  cb_sweep_settle_skip "$file" && exit 0
+
+  # Two project names can normalize to the same reply filename.
+  for i in "${!CB_P_NAME[@]}"; do
+    if [[ "$(cb_reply_download_name "${CB_P_NAME[$i]}" "$round")" == "${file##*/}" ]]; then
+      hits=$((hits + 1))
+    fi
+  done
+  [[ "$hits" == 1 ]] || exit 0
+  cb_ledger_has "$CB_HANDOFF" "$(cb_sha256 "$file")" && exit 0
+  cb_is_zip "$file" && unzip -tq "$file" >/dev/null 2>&1 || exit 0
+
+  # The existing importer takes the same lock again. Let this subshell keep
+  # its outer lock cleanup even if the importer changes the EXIT trap.
+  (cb_ingest_project "$name" downloads "$file")
+)
+
+cb_sweep_downloads() {
+  cb_auto_enabled && [[ "${#CB_P_NAME[@]}" -gt 0 ]] || return 0
+  local name
+  for name in "${CB_P_NAME[@]}"; do
+    cb_sweep_download "$name" || cb_warn "could not collect download for ${name}"
+  done
 }

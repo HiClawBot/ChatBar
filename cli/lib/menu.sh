@@ -1,167 +1,119 @@
 # SwiftBar menu. Clicks call the CLI. MIT License.
 
-# Status only. The project row does not offer a second copy action.
-cb_menu_round_status() {
-  cb_next_fields
-  case "$CB_NEXT_STATE" in
-    ready) printf '第 %s 轮 · 待发给 g' "$CB_NEXT_ROUND" ;;
-    waiting) printf '第 %s 轮 · 等 g 回复' "$CB_NEXT_ROUND" ;;
-    inbox) printf '第 %s 轮 · 新任务' "$CB_NEXT_ROUND" ;;
-    *) printf '第 %s 轮 · 待打包' "$CB_NEXT_ROUND" ;;
-  esac
-}
-
 cb_menu_title_safe() {
   local s="$1"
   s="${s//|/／}"
   s="${s//$'\n'/ }"
+  s="${s//$'\r'/ }"
+  # SwiftBar uses leading hyphens for submenu indentation.
+  [[ "$s" != -* ]] || s="－${s#-}"
   printf '%s' "$s"
 }
 
-cb_project_is_new() {
-  local inbox zip dl round
-  if [[ "$(cb_state_get "$CB_HANDOFF" "inbox-state" "none")" == "new" ]]; then
-    return 0
-  fi
-  inbox="$(cb_dir "$CB_HANDOFF" inbox)"
-  if [[ -f "${inbox}/NEW.json" || -f "${CB_HANDOFF}/agent-result.json" ]]; then
-    return 0
-  fi
-  round="$(cb_active_round)"
-  zip="$(cb_reply_download_name "$CB_NAME" "$round")"
-  if [[ -f "${inbox}/${zip}" ]]; then
-    return 0
-  fi
-  dl="${CHATBAR_DOWNLOADS:-${HOME}/Downloads}"
-  if [[ -f "${dl}/${zip}" ]]; then
-    return 0
-  fi
-  return 1
+cb_menu_command() {
+  local label="$1" bin="$2" i=1 arg
+  shift 2
+  printf '%s | bash="%s"' "$label" "$bin"
+  for arg in "$@"; do
+    printf ' param%s=%s' "$i" "$arg"
+    i=$((i + 1))
+  done
+  printf ' terminal=false refresh=true\n'
+}
+
+cb_menu_toggle() {
+  local prefix="$1" bin="$2" path="${3:-}" name="${4:-}" value=on
+  cb_auto_enabled "$path" && value=off
+  cb_menu_command "${prefix}$(cb_auto_label "$path")" "$bin" auto "$value" ${name:+"$name"}
 }
 
 cb_menu_more() {
-  local bin="$1"
-  local enc="" current=""
-  current="$(cb_current_name 2>/dev/null || true)"
-  if [[ -n "$current" ]]; then
-    enc="$(cb_b64enc "$current")"
-  elif [[ "${#CB_P_NAME[@]}" -gt 0 ]]; then
-    enc="$(cb_b64enc "${CB_P_NAME[0]}")"
-  fi
+  local bin="$1" step="$2" round="$3" enc="$4" back="$5" i name project
   printf '%s\n' '更多'
-  printf -- '-- 打包 | bash=%s param1=pack terminal=false refresh=true\n' "$bin"
-  printf -- '-- 打开收发窗口 | bash=%s param1=reveal terminal=false\n' "$bin"
-  if [[ -n "$enc" ]]; then
-    printf -- '-- 打开交接目录 | bash=%s param1=open-handoff param2=b64:%s terminal=false\n' "$bin" "$enc"
-    printf -- '-- 打开项目根目录 | bash=%s param1=open-root param2=b64:%s terminal=false\n' "$bin" "$enc"
-    printf -- '-- 归档 | bash=%s param1=archive param2=b64:%s terminal=false refresh=true\n' "$bin" "$enc"
-    printf -- '-- 结束本轮 | bash=%s param1=archive param2=b64:%s terminal=false refresh=true\n' "$bin" "$enc"
+  if [[ -n "$back" ]]; then
+    cb_menu_command '-- 上一步' "$bin" step back "$enc" "$round" "$step"
   fi
-  printf -- '-- 刷新 | refresh=true\n'
-  printf -- '-- 添加项目… | bash=%s param1=project param2=pick-folder terminal=false refresh=true\n' "$bin"
-  printf -- '-- 检查更新 | bash=%s param1=update param2=--check terminal=false refresh=true\n' "$bin"
-  printf -- '-- 还原上一版 | bash=%s param1=update param2=--rollback terminal=false refresh=true\n' "$bin"
-  printf -- '-- 设置 | bash=%s param1=open-home terminal=false\n' "$bin"
+  if [[ -n "$enc" ]]; then
+    cb_menu_command '-- 打包' "$bin" pack --project "$enc"
+    cb_menu_command '-- 打开收发窗口' "$bin" reveal "$enc"
+    cb_menu_command '-- 归档' "$bin" archive "$enc"
+    cb_menu_command '-- 结束本轮' "$bin" close "$enc"
+  fi
+  cb_menu_command '-- 刷新' "$bin" sweep
+  cb_menu_command '-- 添加项目…' "$bin" project pick-folder
+  cb_menu_command '-- 检查更新' "$bin" update --check
+  if cb_update_previous "$(cb_install_root)" >/dev/null; then
+    cb_menu_command '-- 还原上一版' "$bin" update --rollback
+  fi
+  cb_menu_command '-- 设置' "$bin" open-home
+  if [[ "${#CB_P_NAME[@]}" -gt 0 ]]; then
+    for i in "${!CB_P_NAME[@]}"; do
+      name="${CB_P_NAME[$i]}"
+      project="b64:$(cb_b64enc "$name")"
+      printf -- '-- %s\n' "$(cb_menu_title_safe "$name")"
+      cb_menu_toggle '---- ' "$bin" "${CB_P_HANDOFF[$i]}" "$project"
+      cb_menu_command '---- 打开交接目录' "$bin" open-handoff "$project"
+      cb_menu_command '---- 打开项目根目录' "$bin" open-root "$project"
+    done
+  fi
 }
 
 cb_cmd_swiftbar_menu() {
-  local bin
+  local bin current step label title icon round enc="" back i new=0 status name checked dot
+  local -a rows
+  rows=()
   bin="$(cb_chatbar_bin)"
-  cb_projects_load
-  local headline="添加"
-  local action=""
-  local action_enc=""
-  local any_new=0
-  local i
+  cb_next_load_project ""
+  cb_next_fields
+  current="$CB_NEXT_PROJECT"
+  step="$CB_NEXT_STEP"
+  label="$CB_NEXT_LABEL"
+  title="$CB_NEXT_TITLE"
+  icon="$CB_NEXT_ICON"
+  round="$CB_NEXT_ROUND"
+  back="$CB_NEXT_BACK"
+  [[ -z "$current" ]] || enc="b64:$(cb_b64enc "$current")"
   if [[ "${#CB_P_NAME[@]}" -gt 0 ]]; then
-    local current="" idx=0
-    current="$(cb_current_name 2>/dev/null || true)"
-    if [[ -n "$current" ]]; then
-      for i in "${!CB_P_NAME[@]}"; do
-        if [[ "${CB_P_NAME[$i]}" == "$current" ]]; then
-          idx="$i"
-          break
-        fi
-      done
-    fi
-    cb_load_project_fields "$idx"
-    cb_next_fields
-    headline="$CB_NEXT_TITLE"
-    action="$CB_NEXT_ACTION"
-    action_enc="$(cb_b64enc "$CB_NAME")"
     for i in "${!CB_P_NAME[@]}"; do
       cb_load_project_fields "$i"
-      if cb_project_is_new; then
-        any_new=1
-        break
-      fi
-    done
-  fi
-  if [[ "$any_new" == 1 ]]; then
-    headline="新任务"
-    printf '%s | sfimage=circle.fill color=#DC2626 size=16\n' "$(cb_menu_title_safe "$headline")"
-  elif [[ "$headline" == "复制" ]]; then
-    printf '%s | sfimage=shippingbox color=#1D4ED8 size=16\n' "$(cb_menu_title_safe "$headline")"
-  else
-    printf '%s | sfimage=arrow.left.arrow.right size=16\n' "$(cb_menu_title_safe "$headline")"
-  fi
-  printf '%s\n' '---'
-  if [[ "$action" == "复制给 g" && -n "$action_enc" ]]; then
-    printf '复制给 g | bash=%s param1=handoff-now param2=b64:%s terminal=false refresh=true\n' \
-      "$bin" "$action_enc"
-  elif [[ "$action" == "打开下载" ]]; then
-    printf '打开下载 | bash=%s param1=open-downloads terminal=false refresh=true\n' "$bin"
-  fi
-  local auto_word="关"
-  if cb_auto_global_on; then
-    auto_word="开"
-  fi
-  printf '自动收发：%s | bash=%s param1=auto param2=toggle terminal=false refresh=true\n' \
-    "$auto_word" "$bin"
-  if [[ -f "$(cb_update_flag_path)" ]]; then
-    printf '有更新 | bash=%s param1=update terminal=false refresh=true size=12 color=#1D4ED8\n' "$bin"
-  fi
-  if [[ "${#CB_P_NAME[@]}" -eq 0 ]]; then
-    printf '还没有项目 | size=12 color=#888888\n'
-  else
-    local current=""
-    current="$(cb_current_name 2>/dev/null || true)"
-    for i in "${!CB_P_NAME[@]}"; do
-      local name status enc checked color dot proj_auto
-      name="${CB_P_NAME[$i]}"
-      cb_load_project_fields "$i"
-      status="$(cb_menu_round_status)"
-      enc="$(cb_b64enc "$name")"
+      cb_next_fields
+      name="$(cb_menu_title_safe "$CB_NAME")"
       checked=""
-      color=""
       dot=""
-      if [[ "$name" == "$current" ]]; then
-        checked=" checked=true"
+      [[ "$CB_NAME" != "$current" ]] || checked=" checked=true"
+      if [[ "$CB_NEXT_NEW" == 1 ]]; then
+        new=1
+        dot=" sfimage=circle.fill sfcolor=#DC2626"
       fi
-      if cb_project_is_new; then
-        dot="● "
-        color=" color=#C2410C"
-      fi
-      if cb_auto_project_on; then
-        proj_auto="开"
-      else
-        proj_auto="关"
-      fi
-      printf '%s%s · %s | bash=%s param1=project param2=use param3=b64:%s terminal=false refresh=true%s%s\n' \
-        "$dot" \
-        "$(cb_menu_title_safe "$name")" \
-        "$status" \
-        "$bin" \
-        "$enc" \
-        "$checked" \
-        "$color"
-      printf -- '-- 打开 | bash=%s param1=open param2=b64:%s terminal=false\n' "$bin" "$enc"
-      printf -- '-- 自动收发：%s | bash=%s param1=auto param2=toggle-project param3=b64:%s terminal=false refresh=true\n' \
-        "$proj_auto" "$bin" "$enc"
-      printf -- '-- 结束本轮 | bash=%s param1=archive param2=b64:%s terminal=false refresh=true\n' "$bin" "$enc"
+      case "$CB_NEXT_STEP" in
+        copy|paste|drag|send) status=待发 ;;
+        wait) status='等 g' ;;
+        received) status=收好了 ;;
+        result) status=有结果 ;;
+        *) status=待打包 ;;
+      esac
+      rows+=("$(cb_menu_command "$name · 第${CB_NEXT_ROUND}轮 · $status" "$bin" \
+        project use "b64:$(cb_b64enc "$CB_NAME")")${checked}${dot}")
     done
   fi
+
+  if [[ "$new" == 1 ]]; then
+    printf '%s\n' '新任务 | sfimage=circle.fill sfcolor=#DC2626 dropdown=false'
+  else
+    printf '%s | sfimage=%s dropdown=false\n' "$title" "$icon"
+  fi
   printf '%s\n' '---'
-  cb_menu_more "$bin"
-  printf '发送永远由你手动 | size=12 color=#888888\n'
+  case "$step" in
+    no_project|need_pack) printf '%s | color=#888888\n' "$label" ;;
+    *) cb_menu_command "$(cb_menu_title_safe "$label")" "$bin" step advance "$enc" "$round" "$step" ;;
+  esac
+  cb_menu_toggle '' "$bin"
+  if cb_update_available; then
+    cb_menu_command '有更新' "$bin" update
+  fi
+  if [[ "${#rows[@]}" -gt 0 ]]; then
+    printf '%s\n' '---' "${rows[@]}"
+  fi
+  printf '%s\n' '---'
+  cb_menu_more "$bin" "$step" "$round" "$enc" "$back"
 }

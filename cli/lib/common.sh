@@ -90,7 +90,7 @@ cb_json_escape() {
   while [[ "$i" -lt "$len" ]]; do
     c="${s:i:1}"
     case "$c" in
-      '\\') out="${out}\\\\" ;;
+      $'\\') out="${out}\\\\" ;;
       '"') out="${out}\\\"" ;;
       $'\n') out="${out}\\n" ;;
       $'\r') out="${out}\\r" ;;
