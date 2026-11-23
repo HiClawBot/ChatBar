@@ -240,8 +240,15 @@ cb_cmd_pack() {
   shopt -u nullglob
   local stable="${outdir}/to_planner.md"
   local snapshot="${outdir}/to_planner-${stamp}-r${round}.md"
+  local round_file="${outdir}/to_chatgpt_$(cb_round_label "$round").md"
+  shopt -s nullglob
+  for oldf in "$outdir"/to_chatgpt_R*.md; do
+    rm -f "$oldf"
+  done
+  shopt -u nullglob
   cat "$redacted" | cb_atomic_write "$stable"
   cat "$redacted" | cb_atomic_write "$snapshot"
+  cat "$redacted" | cb_atomic_write "$round_file"
   cb_write_opener_files "$opener"
 
   local full_note=""

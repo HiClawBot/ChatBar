@@ -67,6 +67,8 @@ source "${CB_LIB}/bundle.sh"
 source "${CB_LIB}/downloads.sh"
 # shellcheck source=lib/tip.sh
 source "${CB_LIB}/tip.sh"
+# shellcheck source=lib/next.sh
+source "${CB_LIB}/next.sh"
 
 cb_help() {
   cat <<'EOF'
@@ -106,6 +108,7 @@ Sending in the planner chat is always your own drag. No web automation.
   chatbar config get [--json] | set [flags]
   chatbar tip
   chatbar log
+  chatbar next
   chatbar folders [--project NAME]
   chatbar sweep
   chatbar hook install [--repo PATH]
@@ -166,6 +169,7 @@ cb_main() {
       esac
       ;;
     tip) cb_cmd_tip "$@" ;;
+    next) cb_cmd_next "$@" ;;
     log) cb_cmd_log "$@" ;;
     folders) cb_cmd_folders "$@" ;;
     done) cb_cmd_done "$@" ;;

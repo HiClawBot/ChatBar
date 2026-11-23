@@ -204,6 +204,12 @@ scene="$("$CHATBAR" log --json)"
 assert_contains "$scene" '"direction":"from_planner"' "scene log is the jsonl feed"
 unset CHATBAR_MACHINE
 
+"$CHATBAR" project use "下载甲" >/dev/null
+next="$("$CHATBAR" next --json)"
+assert_contains "$next" '"line_zh":' "next step has one instruction"
+assert_contains "$next" 'to_chatgpt_R' "next step names the current round file"
+assert_contains "$next" '"opener":' "next step includes the opener"
+
 bash "$ROOT/scripts/lint-iron-rule.sh" "$ROOT"
 
 BAD="$TMP/bad-iron"

@@ -69,6 +69,9 @@ final class CardModel: ObservableObject {
     @Published var tipCostField = "0"
     @Published var sceneEvents: [SceneEvent] = []
     @Published var settingsVisible = false
+    @Published var nextLine = ""
+    @Published var nextFile = ""
+    @Published var nextOpener = ""
 
     var bridge: CLIBridge?
     var onIcon: (IconStyle) -> Void = { _ in }
@@ -264,6 +267,35 @@ final class CardModel: ObservableObject {
             }
         }
         primed = true
+        loadNext(project: current)
+    }
+
+    func performNext() {
+        let opener = nextOpener.isEmpty ? openerText : nextOpener
+        PasteboardWriter.write(opener: opener, files: [], mode: .opener)
+        guard !nextFile.isEmpty, FileManager.default.fileExists(atPath: nextFile) else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: nextFile)])
+    }
+
+    private func loadNext(project: ProjectStatus?) {
+        guard let bridge else {
+            applyNext(NextStepFallback.make(project: project))
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = try? bridge.run(.next)
+            if let result, result.ok, let step = try? JSONDocuments.next(Data(result.stdout.utf8)) {
+                DispatchQueue.main.async { self.applyNext(step) }
+            } else {
+                DispatchQueue.main.async { self.applyNext(NextStepFallback.make(project: project)) }
+            }
+        }
+    }
+
+    private func applyNext(_ step: NextStep) {
+        nextLine = step.line(chinese: L10n.chinese)
+        nextFile = step.file
+        nextOpener = step.opener
     }
 
     private func loadOpener(_ name: String) {
@@ -295,6 +327,7 @@ struct CardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            NextStepBanner(model: model)
             header
             if !model.pending.isEmpty { pendingList }
             opener
@@ -666,12 +699,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let requested = LaunchRequest.view(from: CommandLine.arguments) {
             present(requested)
         } else if !UserDefaults.standard.bool(forKey: "welcomeShown") {
-            UserDefaults.standard.set(true, forKey: "welcomeShown")
             let alert = NSAlert()
             alert.messageText = L10n.text("welcome.title")
             alert.informativeText = L10n.text("welcome.body")
             alert.addButton(withTitle: L10n.text("welcome.ok"))
             alert.runModal()
+            UserDefaults.standard.set(true, forKey: "welcomeShown")
         }
     }
 
@@ -843,10 +876,29 @@ final class DropView: NSView {
 @main
 enum ChatBarMain {
     static func main() {
+        if CommandLine.arguments.contains("--self-test") {
+            exit(L10n.selfTest())
+        }
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate
         app.setActivationPolicy(.accessory)
         app.run()
+    }
+}
+
+struct NextStepBanner: View {
+    @ObservedObject var model: CardModel
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(model.nextLine.isEmpty ? L10n.text("card.idle") : model.nextLine)
+                .font(.system(size: 18, weight: .semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Button(L10n.text("next.button")) { model.performNext() }
+                .disabled(model.nextFile.isEmpty && model.nextOpener.isEmpty && model.openerText.isEmpty)
+                .buttonStyle(.borderedProminent)
+        }
     }
 }

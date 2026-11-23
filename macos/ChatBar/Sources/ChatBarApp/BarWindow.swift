@@ -10,6 +10,7 @@ struct BarWindowView: View {
         HStack(alignment: .top, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    NextStepBanner(model: model)
                     Text(L10n.text("bar.title"))
                         .font(.system(size: 22, weight: .semibold))
                     rooms

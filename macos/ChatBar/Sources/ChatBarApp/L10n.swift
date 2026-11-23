@@ -7,8 +7,7 @@ enum L10n {
     }
 
     static func text(_ key: String) -> String {
-        if let value = bundle().localizedString(forKey: key, value: nil, table: "Localizable") as String?,
-           value != key {
+        if let value = localized(key), value != key, !value.isEmpty {
             return value
         }
         return fallback[key] ?? key
@@ -18,17 +17,43 @@ enum L10n {
         String(format: text(key), locale: Locale.current, arguments: args)
     }
 
-    private static func bundle() -> Bundle {
-        let code = chinese ? "zh-Hans" : "en"
-        let candidates = [Bundle.main, Bundle.module]
-        for root in candidates {
-            if let path = root.path(forResource: code, ofType: "lproj"),
-               let localized = Bundle(path: path) {
-                return localized
+    /// Loads every shipped string and returns 0. Does not touch the Swift package resource bundle.
+    static func selfTest() -> Int32 {
+        var missing: [String] = []
+        for key in fallback.keys.sorted() {
+            let value = text(key)
+            if value.isEmpty {
+                missing.append(key)
             }
         }
-        return Bundle.main
+        if !missing.isEmpty {
+            fputs("l10n missing: \(missing.joined(separator: ", "))\n", stderr)
+            return 1
+        }
+        print("l10n ok \(fallback.count)")
+        return 0
     }
+
+    private static func localized(_ key: String) -> String? {
+        let code = chinese ? "zh-Hans" : "en"
+        let roots = [Bundle.main]
+        for root in roots {
+            if let path = root.path(forResource: code, ofType: "lproj"),
+               let table = Bundle(path: path) {
+                let value = table.localizedString(forKey: key, value: sentinel, table: "Localizable")
+                if value != sentinel && value != key {
+                    return value
+                }
+            }
+            let mainValue = root.localizedString(forKey: key, value: sentinel, table: "Localizable")
+            if mainValue != sentinel && mainValue != key {
+                return mainValue
+            }
+        }
+        return nil
+    }
+
+    private static let sentinel = "\u{0}"
 
     private static let fallback: [String: String] = [
         "card.copy": "复制第 %d 轮（开场白+文件）",
@@ -73,6 +98,7 @@ enum L10n {
         "settings.leftCard": "小卡片",
         "settings.tipMinutes": "每个省掉的动作按几分钟算",
         "settings.tipCost": "每一轮少花的额度",
-        "settings.save": "存储"
+        "settings.save": "存储",
+        "next.button": "复制开场白并选中文件"
     ]
 }

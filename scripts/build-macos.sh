@@ -17,11 +17,21 @@ if [[ "$(uname -m)" != "arm64" ]]; then
 fi
 
 swift build -c release --arch arm64 --package-path "$BIN_DIR" --product ChatBar
-BUILT="$(swift build -c release --arch arm64 --package-path "$BIN_DIR" --show-bin-path)/ChatBar"
+BIN_PATH="$(swift build -c release --arch arm64 --package-path "$BIN_DIR" --show-bin-path)"
+BUILT="${BIN_PATH}/ChatBar"
+RESOURCE_BUNDLE="${BIN_PATH}/ChatBar_ChatBarApp.bundle"
+if [[ ! -d "$RESOURCE_BUNDLE" ]]; then
+  RESOURCE_BUNDLE="$(find "$BIN_PATH" -maxdepth 2 -type d -name 'ChatBar_ChatBarApp.bundle' -print -quit)"
+fi
+if [[ ! -d "$RESOURCE_BUNDLE" ]]; then
+  echo "missing ChatBar_ChatBarApp.bundle next to ${BUILT}" >&2
+  exit 1
+fi
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BUILT" "$APP/Contents/MacOS/ChatBar"
+cp -R "$RESOURCE_BUNDLE" "$APP/Contents/Resources/ChatBar_ChatBarApp.bundle"
 cp "$BIN_DIR/Support/Info.plist" "$APP/Contents/Info.plist"
 cp -R "$BIN_DIR/Sources/ChatBarApp/Resources/zh-Hans.lproj" "$APP/Contents/Resources/"
 cp -R "$BIN_DIR/Sources/ChatBarApp/Resources/en.lproj" "$APP/Contents/Resources/"
@@ -35,8 +45,16 @@ fi
 chmod +x "$APP/Contents/MacOS/ChatBar" "$APP/Contents/Resources/cli/chatbar"
 find "$APP/Contents/Resources/cli" -name '*.sh' -exec chmod +x {} +
 
+if [[ ! -d "$APP/Contents/Resources/ChatBar_ChatBarApp.bundle" ]]; then
+  echo "ChatBar.app is missing Contents/Resources/ChatBar_ChatBarApp.bundle" >&2
+  exit 1
+fi
+
 codesign --force --sign - --identifier bot.hiclaw.chatbar "$APP"
 codesign --verify --verbose=2 "$APP"
+
+echo "Smoke test: load localized strings"
+"$APP/Contents/MacOS/ChatBar" --self-test
 
 rm -f "$ROOT/dist/ChatBar-macos-unsigned.zip"
 ditto -c -k --keepParent "$APP" "$ROOT/dist/ChatBar-macos-unsigned.zip"

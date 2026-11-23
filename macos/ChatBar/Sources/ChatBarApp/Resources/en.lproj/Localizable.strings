@@ -41,3 +41,4 @@
 "settings.tipMinutes" = "Minutes counted per avoided action";
 "settings.tipCost" = "Quota counted per round";
 "settings.save" = "Save";
+"next.button" = "Copy the opener and select the file";

@@ -108,6 +108,16 @@ final class CoreTests: XCTestCase {
         let card = URL(string: "chatbar-app://open?view=card")!
         XCTAssertEqual(LaunchRequest.view(from: card), .card)
         XCTAssertNil(LaunchRequest.view(from: URL(string: "https://example.com/?view=bar")!))
+        let waiting = try sample(pack: "presented", inbox: "none", presented: "", packAt: "")
+        let step = NextStepFallback.make(project: waiting) { path in
+            path.hasSuffix("to_chatgpt_R002.md")
+        }
+        XCTAssertEqual(step.action, "wait")
+        XCTAssertTrue(step.file.hasSuffix("to_chatgpt_R002.md"))
+        XCTAssertTrue(step.lineZh.contains("ChatGPT"))
+        let reply = try sample(pack: "ready", inbox: "new", presented: "", packAt: "")
+        XCTAssertEqual(NextStepFallback.make(project: reply, fileExists: { _ in false }).action, "review")
+        XCTAssertEqual(NextStepFallback.make(project: nil).action, "add")
         XCTAssertEqual(IconStyleResolver.style(projects: [], dropHighlighted: false), .idle)
     }
 

@@ -279,4 +279,8 @@ public enum JSONDocuments {
     public static func scene(_ data: Data) throws -> SceneLog {
         try JSONDecoder().decode(SceneLog.self, from: data)
     }
+
+    public static func next(_ data: Data) throws -> NextStep {
+        try JSONDecoder().decode(NextStep.self, from: data)
+    }
 }

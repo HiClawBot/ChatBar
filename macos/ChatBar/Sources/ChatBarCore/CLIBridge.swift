@@ -65,6 +65,7 @@ public enum CLICommand: Equatable {
     case projectUse(String)
     case tip
     case sceneLog
+    case next
 }
 
 public enum CLIArguments {
@@ -122,6 +123,8 @@ public enum CLIArguments {
             return ["tip"]
         case .sceneLog:
             return ["log"]
+        case .next:
+            return ["next", "--json"]
         }
     }
 
