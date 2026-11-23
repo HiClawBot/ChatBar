@@ -72,6 +72,7 @@ Sending in the planner chat is always your own drag. No web automation.
                       [--with-templates]
   chatbar project list
   chatbar project use NAME
+  chatbar project pick-folder          # macOS folder dialog; name is the folder name
   chatbar pack [--project NAME | --repo PATH] [--full] [--quiet]
   chatbar open [NAME]              # copy opener, open outbox (left) + inbox (right)
   chatbar reveal [NAME]            # open the two folders, no clipboard change
@@ -131,8 +132,8 @@ cb_main() {
         add) cb_cmd_project_add "$@" ;;
         list) cb_cmd_project_list "$@" ;;
         use) cb_cmd_project_use "$@" ;;
-        add-interactive) cb_cmd_project_add_interactive "$@" ;;
-        *) cb_die "usage: chatbar project add|list|use" ;;
+        pick-folder) cb_cmd_project_pick_folder "$@" ;;
+        *) cb_die "usage: chatbar project add|list|use|pick-folder" ;;
       esac
       ;;
     hook)

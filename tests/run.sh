@@ -292,6 +292,23 @@ assert_contains "$menu" "Open workspace root" "menu workspace"
 assert_contains "$menu" "Close round" "menu close"
 assert_contains "$menu" "复制给 GPT 的话" "menu copy opener"
 assert_contains "$menu" "param1=copy-opener" "menu copy action"
+assert_contains "$menu" "更多 / 高级" "add project lives under more"
+assert_contains "$menu" "-- 添加项目…" "add project is a submenu item"
+assert_contains "$menu" "param2=pick-folder" "add project uses the folder picker"
+assert_contains "$menu" "terminal=false" "menu actions stay out of Terminal"
+if printf '%s' "$menu" | grep -q 'terminal=true'; then
+  fail "menu asked for a terminal"
+fi
+if grep -RIn 'terminal=true' "$ROOT/cli/lib/menu.sh" "$ROOT/swiftbar" >/tmp/terminal-hits 2>/dev/null; then
+  fail "menu source uses terminal=true: $(cat /tmp/terminal-hits)"
+fi
+mkdir -p "$TMP/empty-home"
+empty_menu="$(CHATBAR_HOME="$TMP/empty-home" "$CHATBAR" swiftbar-menu)"
+assert_contains "$empty_menu" "还没有项目" "empty menu has no project"
+assert_contains "$empty_menu" "-- 添加项目…" "empty menu still offers the folder picker"
+if printf '%s' "$empty_menu" | grep -q 'terminal=true\|add-interactive'; then
+  fail "empty menu still opens a terminal prompt"
+fi
 
 # round 2 opener uses the previous reply summary
 "$CHATBAR" pack --project "项目乙" >/dev/null
@@ -548,6 +565,19 @@ printf 'got it\n' > "$TMP/hw-reply.md"
 "$CHATBAR" ingest --project 手写 "$TMP/hw-reply.md" >/dev/null
 hw_in="$("$CHATBAR" next 手写)"
 assert_eq "$hw_in" "已收到 R001，交给 agent 处理中，你不用做事" "ingested reply beats a hand-written pack"
+
+# folder picker names the project after the chosen folder and does not prompt
+PICK="$TMP/picked 项目"
+mkdir -p "$PICK"
+picked_out="$(CHATBAR_PICK_FOLDER="$PICK" "$CHATBAR" project pick-folder)"
+assert_contains "$picked_out" "added project picked 项目" "picker uses the folder name"
+pick_phys="$(cd -P "$PICK" && pwd)"
+assert_contains "$("$CHATBAR" project list)" "$pick_phys" "picker stores the chosen folder"
+assert_file "$PICK/AGENTS.md"
+if grep -n 'add-interactive' "$ROOT/cli/chatbar" "$ROOT/cli/lib/projects.sh" "$ROOT/cli/lib/menu.sh" >/tmp/interactive-hits 2>/dev/null; then
+  fail "interactive terminal prompt remains: $(cat /tmp/interactive-hits)"
+fi
+assert_contains "$(cat "$ROOT/cli/lib/projects.sh")" "choose folder" "picker is the macOS folder dialog"
 
 # safety: no chat UI automation
 if grep -RInE 'playwright|puppeteer|api\.openai\.com|browser-cookie|tell application "(Safari|Google Chrome|ChatGPT)"|System Events|keystroke' \

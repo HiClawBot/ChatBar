@@ -413,32 +413,33 @@ cb_cmd_project_use() {
   cb_note "current project: ${name}"
 }
 
-cb_cmd_project_add_interactive() {
-  local name repo handoff opener
-  printf '项目名称 name: ' >&2
-  IFS= read -r name || true
-  printf '仓库路径 repo: ' >&2
-  IFS= read -r repo || true
-  printf '交接目录 handoff (empty = <repo>/.chatbar): ' >&2
-  IFS= read -r handoff || true
-  printf '开场白模板 opener (empty = default): ' >&2
-  IFS= read -r opener || true
-  printf '规划对话名称 chat name (empty = default): ' >&2
-  local chat
-  IFS= read -r chat || true
-  local -a args
-  args=(--name "$name" --repo "$repo")
-  if [[ -n "$handoff" ]]; then
-    args+=(--handoff "$handoff")
+# Local folder dialog only. Does not script any chat app or browser.
+cb_pick_folder() {
+  if [[ -n "${CHATBAR_PICK_FOLDER:-}" ]]; then
+    printf '%s' "$CHATBAR_PICK_FOLDER"
+    return 0
   fi
-  if [[ -n "$opener" ]]; then
-    args+=(--opener "$opener")
+  if [[ "$(uname -s)" != "Darwin" ]] || ! command -v osascript >/dev/null 2>&1; then
+    cb_die "选文件夹需要 macOS。Agents use: chatbar project add --name NAME --repo PATH"
   fi
-  if [[ -n "$chat" ]]; then
-    args+=(--chat-name "$chat")
+  local picked
+  picked="$(osascript -e 'POSIX path of (choose folder with prompt "选择项目文件夹")' 2>/dev/null || true)"
+  picked="$(cb_trim "$picked")"
+  [[ -n "$picked" ]] || return 1
+  printf '%s' "$picked"
+}
+
+cb_cmd_project_pick_folder() {
+  local folder name
+  if ! folder="$(cb_pick_folder)"; then
+    cb_note "已取消"
+    return 0
   fi
-  args+=(--with-templates)
-  cb_cmd_project_add "${args[@]}"
+  folder="${folder%/}"
+  [[ -d "$folder" ]] || cb_die "文件夹不存在: ${folder}"
+  name="$(basename "$folder")"
+  [[ -n "$name" && "$name" != "/" && "$name" != "." ]] || cb_die "无法从文件夹得到项目名"
+  cb_cmd_project_add --name "$name" --repo "$folder" --with-templates
 }
 
 cb_load_project_fields() {
