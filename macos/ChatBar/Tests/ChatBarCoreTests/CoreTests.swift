@@ -76,7 +76,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(items.items[0].name, "foo_round1_reply.md")
     }
 
-    func testBridgePassesPathsAsSeparateArguments() {
+    func testBridgePassesPathsAsSeparateArguments() throws {
         var patch = ConfigPatch()
         patch.autoExchange = false
         XCTAssertEqual(

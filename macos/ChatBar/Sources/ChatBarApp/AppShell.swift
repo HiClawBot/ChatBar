@@ -773,7 +773,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func toggleCard() {
-        guard let button = statusItem?.button else { return }
+        guard statusItem?.button != nil else { return }
         if popover.isShown {
             popover.performClose(nil)
         } else {
