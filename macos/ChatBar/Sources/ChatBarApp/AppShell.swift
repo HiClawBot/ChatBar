@@ -462,40 +462,34 @@ enum Notifier {
 }
 
 enum StatusIcon {
-    static func image(style: IconStyle, appearance: NSAppearance) -> NSImage {
-        let image = NSImage(size: NSSize(width: 18, height: 18))
-        image.lockFocus()
-        appearance.performAsCurrentDrawingAppearance {
-            draw(style: style, in: NSRect(x: 0, y: 0, width: 18, height: 18), appearance: appearance)
-        }
-        image.unlockFocus()
-        image.isTemplate = false
+    private static let mark: NSImage = {
+        let asset = Bundle.main.resourceURL?.appendingPathComponent("assets/brand/menu-template.tiff")
+        let image = asset.flatMap(NSImage.init(contentsOf:))
+            ?? NSImage(systemSymbolName: "arrow.left.arrow.right", accessibilityDescription: nil)
+            ?? NSImage(size: NSSize(width: 16, height: 16))
+        image.size = NSSize(width: 16, height: 16)
+        image.isTemplate = true
+        image.accessibilityDescription = "ChatBar"
         return image
-    }
+    }()
 
-    private static func draw(style: IconStyle, in rect: NSRect, appearance: NSAppearance) {
-        let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let gray = dark ? NSColor(calibratedWhite: 0.78, alpha: 1) : NSColor(calibratedWhite: 0.38, alpha: 1)
-        let color: NSColor = (style == .ready || style == .highlighted) ? .controlAccentColor : gray
-        color.setStroke()
-        let bowl = NSBezierPath(ovalIn: NSRect(x: 4.2, y: 8, width: 9.6, height: 7.2))
-        bowl.lineWidth = 1.35
-        bowl.stroke()
-        let stem = NSBezierPath()
-        stem.move(to: NSPoint(x: 9, y: 3.1))
-        stem.line(to: NSPoint(x: 9, y: 8))
-        stem.lineWidth = 1.35
-        stem.lineCapStyle = .round
-        stem.stroke()
-        let base = NSBezierPath()
-        base.move(to: NSPoint(x: 4.6, y: 2.5))
-        base.line(to: NSPoint(x: 13.4, y: 2.5))
-        base.lineWidth = 1.35
-        base.lineCapStyle = .round
-        base.stroke()
-        if style == .reply {
-            NSColor.systemRed.setFill()
-            NSBezierPath(ovalIn: NSRect(x: 12.1, y: 12.1, width: 4.6, height: 4.6)).fill()
+    static func image(style: IconStyle, appearance: NSAppearance) -> NSImage {
+        guard style == .reply else { return mark }
+        // Keep the existing notification dot red beside the system-tinted mark.
+        let size = NSSize(width: 20, height: 16)
+        return NSImage(size: size, flipped: false) { _ in
+            appearance.performAsCurrentDrawingAppearance {
+                let rect = NSRect(x: 0, y: 0, width: 16, height: 16)
+                NSGraphicsContext.saveGraphicsState()
+                NSBezierPath(rect: rect).addClip()
+                mark.draw(in: rect)
+                NSColor.labelColor.setFill()
+                rect.fill(using: .sourceIn)
+                NSGraphicsContext.restoreGraphicsState()
+                NSColor.systemRed.setFill()
+                NSBezierPath(ovalIn: NSRect(x: 15, y: 11, width: 5, height: 5)).fill()
+            }
+            return true
         }
     }
 }
@@ -748,6 +742,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func applyIcon(_ style: IconStyle) {
         let appearance = statusItem?.button?.effectiveAppearance ?? NSAppearance.currentDrawing()
         statusItem?.button?.image = StatusIcon.image(style: style, appearance: appearance)
+        statusItem?.button?.contentTintColor = (style == .ready || style == .highlighted) ? .controlAccentColor : nil
         statusItem?.button?.title = model.statusTitle
     }
 

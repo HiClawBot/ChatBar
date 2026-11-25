@@ -10,6 +10,8 @@
   <string>bot.hiclaw.chatbar</string>
   <key>CFBundleDisplayName</key>
   <string>ChatBar</string>
+  <key>CFBundleIconFile</key>
+  <string>ChatBar.icns</string>
   <key>CFBundleName</key>
   <string>ChatBar</string>
   <key>CFBundlePackageType</key>
