@@ -62,7 +62,7 @@ The round file is `outbox/to_chatgpt_R00N.md`. A hand-written file for the curre
 | `received` | 收好了 | Receipt manifest in inbox or archive |
 | `result` | 查看结果 | The local agent result at `agent-result.json` |
 
-The first menu row shows the current action. The header displays a short title and icon. A fresh pack, unread reply, or changed local agent result shows a red dot for its project and sets the header to「新任务」. Selecting a project row changes the current project. Administrative actions live under「更多」.
+The first menu row shows the current action. The header displays a short title and icon. An unread reply or changed local agent result shows a red dot for its project and sets the header to「新任务」. Selecting a project row changes the current project. Administrative actions live under「更多」.
 
 Local progress is recorded in `menu-progress`. A previous `pack-state=presented` alone is insufficient to infer that a user sent anything. A new archived or unarchived reply updates `menu-receipt`. Switching projects keeps both state files intact.
 

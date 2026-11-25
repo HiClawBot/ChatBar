@@ -36,8 +36,6 @@ cb_next_fields() {
             CB_NEXT_FILE="$(cb_downloads_dir)/$(cb_reply_download_name "$CB_NAME" "$round")"
             ;;
         esac
-      else
-        CB_NEXT_NEW=1
       fi
     fi
 

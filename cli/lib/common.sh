@@ -190,7 +190,7 @@ cb_b64dec() {
     s="${s}="
     i=$((i + 1))
   done
-  s="$(printf '%s' "$s" | tr '-_' '+/')"
+  s="$(printf '%s' "$s" | tr -- '-_' '+/')"
   if printf '%s' "$s" | base64 -d >/dev/null 2>&1; then
     printf '%s' "$s" | base64 -d
     return 0
