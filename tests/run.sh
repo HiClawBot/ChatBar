@@ -528,7 +528,7 @@ as_next received 收好了 收好了 agents-bar 1
 assert_eq "$("$CHATBAR" auto status --project agents-bar)" on "project auto survives CLI calls"
 "$CHATBAR" pack --auto --repo "$AREPO" --quiet
 assert_file "$AHANDOFF/①发出_拖给ChatGPT/to_chatgpt_R002.md"
-as_next copy 新任务 '复制给 g 的话' agents-bar 2
+as_next copy 复制 '复制给 g 的话' agents-bar 2
 assert_contains "$("$CHATBAR" next --json)" '/to_chatgpt_R002.md"' "JSON points to exact local pack"
 assert_contains "$(cat "$AHANDOFF/①发出_拖给ChatGPT/to_chatgpt_R002.md")" \
   "agents-bar_round2_reply.zip" "pack asks for exact reply filename"
@@ -536,7 +536,7 @@ assert_contains "$("$CHATBAR" swiftbar-menu)" "---- 自动收发：开" "project
 
 # Duplicate and stale callbacks are harmless. Copy never selects in Finder.
 "$CHATBAR" step advance agents-bar 1 copy
-as_next copy 新任务 '复制给 g 的话' agents-bar 2
+as_next copy 复制 '复制给 g 的话' agents-bar 2
 assert_eq "$("$CHATBAR" step advance agents-bar 2 copy)" "" "copy does not invoke Finder"
 "$CHATBAR" step advance agents-bar 2 copy
 as_next paste 粘贴 我已粘贴 agents-bar 2
@@ -586,7 +586,7 @@ assert_contains "$("$CHATBAR" next --json)" '/inbox/NEW.json"' "archived reply s
 "$CHATBAR" step advance agents-bar 2 received >/dev/null
 as_next received 收好了 收好了 agents-bar 2
 "$CHATBAR" pack --auto --repo "$AREPO" --quiet
-as_next copy 新任务 '复制给 g 的话' agents-bar 3
+as_next copy 复制 '复制给 g 的话' agents-bar 3
 
 # A hand-written current-round pack is recognized, including when another
 # project gets a notification. Legacy 'presented' alone is no send confirmation.
@@ -600,20 +600,23 @@ assert_contains "$("$CHATBAR" next --json)" '"step":"need_pack"' "other round pa
 rm -f "$hw_out/to_chatgpt_R002.md"
 printf 'hand written round\n' > "$hw_out/to_chatgpt_R001.md"
 assert_file "$hw_out/给GPT的话.txt"
-as_next copy 新任务 '复制给 g 的话' 手写 1
+as_next copy 复制 '复制给 g 的话' 手写 1
 printf '{"result":"local result"}\n' > "$HWHANDOFF/agent-result.json"
 as_next result 新任务 查看结果 手写 1
 assert_contains "$("$CHATBAR" step advance 手写 1 result)" "/agent-result.json" "result selection is local"
-as_next copy 新任务 '复制给 g 的话' 手写 1
+as_next copy 复制 '复制给 g 的话' 手写 1
 "$CHATBAR" open 手写 >/dev/null
-as_next copy 新任务 '复制给 g 的话' 手写 1
+as_next copy 复制 '复制给 g 的话' 手写 1
 "$CHATBAR" project use agents-bar >/dev/null
 "$CHATBAR" step advance agents-bar 3 copy
 "$CHATBAR" step advance agents-bar 3 paste
 "$CHATBAR" project use 手写 >/dev/null
-as_next copy 新任务 '复制给 g 的话' 手写 1
+as_next copy 复制 '复制给 g 的话' 手写 1
 "$CHATBAR" project use agents-bar >/dev/null
 assert_contains "$("$CHATBAR" next --json)" '"step":"drag"' "project switch preserves its phase"
+plain_menu="$("$CHATBAR" swiftbar-menu)"
+assert_not_contains "$plain_menu" "新任务" "an unsent pack never raises a notification"
+printf '{"result":"new local result"}\n' > "$HWHANDOFF/agent-result.json"
 multi_menu="$("$CHATBAR" swiftbar-menu)"
 assert_contains "$(printf '%s\n' "$multi_menu" | head -n 1)" '新任务 | sfimage=circle.fill sfcolor=#DC2626' \
   "another project lights the bar red"
@@ -656,6 +659,8 @@ if grep -n 'add-interactive' "$ROOT/cli/chatbar" "$ROOT/cli/lib/projects.sh" "$R
   fail "interactive terminal prompt remains: $(cat /tmp/interactive-hits)"
 fi
 assert_contains "$(cat "$ROOT/cli/lib/projects.sh")" "choose folder" "picker is the macOS folder dialog"
+
+python3 "$ROOT/tests/swiftbar-callbacks.py" "$CHATBAR"
 
 # Source updates use a mocked public endpoint and an isolated install root.
 UPDATE_ROOT="$TMP/ChatBar source"
