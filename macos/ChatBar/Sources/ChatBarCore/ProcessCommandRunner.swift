@@ -3,7 +3,7 @@ import Foundation
 import Darwin
 #endif
 
-/// Runs the bundled CLI without inheriting the GUI's stdin or waiting on a full pipe.
+/// Runs the bundled CLI with private file-backed I/O and a deadline for the child process.
 public final class ProcessCommandRunner: CommandRunning {
     public var timeout: TimeInterval
 
@@ -22,91 +22,59 @@ public final class ProcessCommandRunner: CommandRunning {
         process.arguments = arguments
         process.environment = Self.mergedEnvironment(overlay: environment)
 
-        let output = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = output
-        process.standardError = errorPipe
-        let inputPipe: Pipe?
-        if standardInput != nil {
-            let pipe = Pipe()
-            inputPipe = pipe
-            process.standardInput = pipe
-        } else if let nullInput = FileHandle(forReadingAtPath: "/dev/null") {
-            inputPipe = nil
-            process.standardInput = nullInput
+        let files = FileManager.default
+        let capture = files.temporaryDirectory.appendingPathComponent("chatbar-cli-\(UUID().uuidString)")
+        try files.createDirectory(at: capture, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        defer { try? files.removeItem(at: capture) }
+
+        let stdoutURL = capture.appendingPathComponent("stdout")
+        let stderrURL = capture.appendingPathComponent("stderr")
+        try Data().write(to: stdoutURL)
+        try Data().write(to: stderrURL)
+        let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+        defer { try? stdoutHandle.close() }
+        let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+        defer { try? stderrHandle.close() }
+        process.standardOutput = stdoutHandle
+        process.standardError = stderrHandle
+
+        let stdinURL = capture.appendingPathComponent("stdin")
+        let input: FileHandle
+        if let standardInput {
+            try Data(standardInput.utf8).write(to: stdinURL)
+            input = try FileHandle(forReadingFrom: stdinURL)
         } else {
-            inputPipe = nil
-            process.standardInput = FileHandle.nullDevice
+            input = try FileHandle(forReadingFrom: URL(fileURLWithPath: "/dev/null"))
         }
+        defer { try? input.close() }
+        process.standardInput = input
 
-        // Drain both pipes on their own queues before the child can fill a 64KB buffer.
-        let outQueue = DispatchQueue(label: "chatbar.cli.stdout")
-        let errQueue = DispatchQueue(label: "chatbar.cli.stderr")
-        let lock = NSLock()
-        var outData = Data()
-        var errData = Data()
-        let group = DispatchGroup()
-        group.enter()
-        outQueue.async {
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            lock.lock()
-            outData = data
-            lock.unlock()
-            group.leave()
-        }
-        group.enter()
-        errQueue.async {
-            let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            lock.lock()
-            errData = data
-            lock.unlock()
-            group.leave()
-        }
-
+        // A descendant may keep an inherited output descriptor open after the CLI
+        // exits. The CLI's termination, independent of output EOF, owns the deadline.
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+        let command = ([executable] + arguments).joined(separator: " ")
         do {
             try process.run()
         } catch {
-            try? output.fileHandleForWriting.close()
-            try? errorPipe.fileHandleForWriting.close()
-            try? inputPipe?.fileHandleForWriting.close()
-            _ = group.wait(timeout: .now() + 1)
-            let message = "failed to start \(executable) \(arguments.joined(separator: " ")): \(error.localizedDescription)"
-            Self.log(message)
+            Self.log("failed to start \(command): \(error.localizedDescription)")
             throw error
         }
-
-        if let inputPipe {
-            if let standardInput, !standardInput.isEmpty {
-                inputPipe.fileHandleForWriting.write(Data(standardInput.utf8))
-            }
-            try? inputPipe.fileHandleForWriting.close()
-        }
-
-        var timedOut = false
-        if group.wait(timeout: .now() + timeout) == .timedOut {
-            timedOut = true
-            Self.stop(process)
-            _ = group.wait(timeout: .now() + 1)
-        }
-        if process.isRunning {
-            Self.stop(process)
-        }
+        let timedOut = exited.wait(timeout: .now() + timeout) == .timedOut && process.isRunning
+        if timedOut { Self.stop(process) }
         process.waitUntilExit()
 
-        lock.lock()
-        let stdout = String(decoding: outData, as: UTF8.self)
-        var stderr = String(decoding: errData, as: UTF8.self)
-        lock.unlock()
-
-        var code = process.terminationStatus
+        let stdout = String(decoding: try Data(contentsOf: stdoutURL), as: UTF8.self)
+        var stderr = String(decoding: try Data(contentsOf: stderrURL), as: UTF8.self)
+        let code: Int32 = timedOut ? 124 : process.terminationStatus
         if timedOut {
-            code = 124
-            let note = "chatbar timed out after \(Int(timeout.rounded()))s: \(executable) \(arguments.joined(separator: " "))"
+            let note = "chatbar timed out after \(String(format: "%g", timeout))s"
             stderr = stderr.isEmpty ? note : stderr + "\n" + note
-            Self.log(note)
+            Self.log("\(note): \(command)")
         } else if code != 0 {
-            Self.log("chatbar exit \(code): \(executable) \(arguments.joined(separator: " "))\n\(stderr)")
+            Self.log("chatbar exit \(code): \(command)\n\(stderr)")
         }
+
         return CLIResult(code: code, stdout: stdout, stderr: stderr)
     }
 

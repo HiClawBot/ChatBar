@@ -118,7 +118,7 @@ final class CardModel: ObservableObject {
 
     private func loadTip() {
         guard let bridge else { return }
-        DispatchQueue.global().async {
+        commands.async {
             guard let result = try? bridge.run(.tip), result.ok,
                   let tip = try? JSONDocuments.tip(Data(result.stdout.utf8)) else { return }
             DispatchQueue.main.async {
@@ -132,7 +132,7 @@ final class CardModel: ObservableObject {
 
     private func loadScene() {
         guard let bridge else { return }
-        DispatchQueue.global().async {
+        commands.async {
             guard let result = try? bridge.run(.sceneLog), result.ok,
                   let log = try? JSONDocuments.scene(Data(result.stdout.utf8)) else { return }
             DispatchQueue.main.async { self.sceneEvents = log.events }
@@ -169,22 +169,22 @@ final class CardModel: ObservableObject {
         refreshID += 1
         nextStep = nil
         commands.async {
-            let error: String?
+            let commandError: String?
             do {
                 if let opener {
                     let saved = try bridge.run(.openerSave(opener.project), standardInput: opener.text)
                     if !saved.ok {
-                        let message = Self.failureLine(saved, fallback: "chatbar opener save (\(saved.code))")
+                        let message = Self.failureLabel(code: saved.code, key: "cli.commandFailed")
                         DispatchQueue.main.async { self.finishCommand(error: message) }
                         return
                     }
                 }
                 let result = try bridge.run(command)
-                error = result.ok ? nil : Self.failureLine(result, fallback: "chatbar (\(result.code))")
-            } catch let failure {
-                error = failure.localizedDescription
+                commandError = result.ok ? nil : Self.failureLabel(code: result.code, key: "cli.commandFailed")
+            } catch {
+                commandError = L10n.text("cli.commandFailed")
             }
-            DispatchQueue.main.async { self.finishCommand(error: error) }
+            DispatchQueue.main.async { self.finishCommand(error: commandError) }
         }
     }
 
@@ -202,7 +202,7 @@ final class CardModel: ObservableObject {
         defer { noteFirstRefresh() }
         guard let doc = document else {
             nextStep = nil
-            errorLine = status.map { Self.failureLine($0, fallback: "chatbar status (\($0.code))") } ?? "chatbar 没有返回"
+            errorLine = Self.failureLabel(code: status?.code)
             return
         }
         projects = doc.projects
@@ -219,14 +219,14 @@ final class CardModel: ObservableObject {
             lastPackStamp = ""
         }
         projectAuto = current?.projectAuto ?? false
-        errorLine = current?.error ?? ""
+        errorLine = current?.error.isEmpty == false ? L10n.text("cli.commandFailed") : ""
         switch next {
         case .success(let step):
             nextStep = step
             if step.step == .copy && loadedOpener.isEmpty { openerExpanded = true }
         case .failure(let error):
             nextStep = nil
-            errorLine = error.localizedDescription
+            errorLine = Self.failureLabel(code: (error as? NextStepReadError)?.exitCode)
         case nil:
             nextStep = nil
         }
@@ -266,13 +266,8 @@ final class CardModel: ObservableObject {
         onFirstRefresh?()
     }
 
-    private static func failureLine(_ result: CLIResult, fallback: String) -> String {
-        let line = result.stderr
-            .split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .last { !$0.isEmpty }
-        if let line, !line.isEmpty { return String(line) }
-        return fallback
+    private static func failureLabel(code: Int32?, key: String = "cli.readFailed") -> String {
+        L10n.text(code == 124 ? "cli.timeout" : key)
     }
 
     func performNext(_ direction: NextStep.Direction = .advance) {
@@ -587,9 +582,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model.onFirstRefresh = { [weak self] in
             DispatchQueue.main.async { self?.showWelcomeIfNeeded() }
         }
-        model.refresh(automatic: true)
         if let requested = LaunchRequest.view(from: CommandLine.arguments) {
+            if requested == .settings { model.refresh(automatic: true) }
             present(requested)
+        } else {
+            model.refresh(automatic: true)
         }
     }
 
@@ -638,12 +635,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func dismissWelcome(_ sender: Any?) {
-        welcomePanel?.close()
+        guard let welcomePanel else { return }
+        UserDefaults.standard.set(true, forKey: "welcomeShown")
+        welcomePanel.close()
     }
 
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow, window === welcomePanel else { return }
-        UserDefaults.standard.set(true, forKey: "welcomeShown")
         welcomePanel = nil
     }
 
