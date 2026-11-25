@@ -38,8 +38,8 @@
 "settings.leftClick" = "Left click opens";
 "settings.leftBar" = "Bar window";
 "settings.leftCard" = "Compact card";
-"settings.tipMinutes" = "Minutes counted per avoided action";
-"settings.tipCost" = "Quota counted per round";
+"settings.tipMinutes" = "Minutes per action";
+"settings.tipCost" = "Cost per round";
 "settings.save" = "Save";
 "next.button" = "Copy the opener and select the file";
 "menu.more" = "More";
@@ -47,3 +47,6 @@
 "add.choose" = "Add";
 "add.message" = "Choose the code folder. The project name is the folder name.";
 "menu.back" = "Back";
+"cli.timeout" = "Read timed out";
+"cli.readFailed" = "Read failed";
+"cli.commandFailed" = "Action failed";

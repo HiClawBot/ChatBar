@@ -38,8 +38,8 @@
 "settings.leftClick" = "左键打开";
 "settings.leftBar" = "吧台窗口";
 "settings.leftCard" = "小卡片";
-"settings.tipMinutes" = "每个省掉的动作按几分钟算";
-"settings.tipCost" = "每一轮少花的额度";
+"settings.tipMinutes" = "每步分钟";
+"settings.tipCost" = "每轮费用";
 "settings.save" = "存储";
 "next.button" = "复制开场白并选中文件";
 "menu.more" = "更多";
@@ -47,3 +47,6 @@
 "add.choose" = "添加";
 "add.message" = "选代码文件夹。项目名用文件夹的名字。";
 "menu.back" = "上一步";
+"cli.timeout" = "读取超时";
+"cli.readFailed" = "读取失败";
+"cli.commandFailed" = "操作失败";

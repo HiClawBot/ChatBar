@@ -241,7 +241,7 @@ public struct CLIBridge {
         let result = try run(.next(project: project))
         guard result.ok else {
             let message = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw NextStepReadError(message.isEmpty ? "chatbar next (\(result.code))" : message)
+            throw NextStepReadError(message.isEmpty ? "chatbar next (\(result.code))" : message, exitCode: result.code)
         }
         let step = try JSONDocuments.next(Data(result.stdout.utf8))
         if let project, step.project != project {
@@ -252,11 +252,16 @@ public struct CLIBridge {
 
 }
 
-private struct NextStepReadError: LocalizedError {
-    let message: String
+public struct NextStepReadError: LocalizedError {
+    private let message: String
+    public let exitCode: Int32?
 
-    init(_ message: String) { self.message = message }
-    var errorDescription: String? { message }
+    init(_ message: String, exitCode: Int32? = nil) {
+        self.message = message
+        self.exitCode = exitCode
+    }
+
+    public var errorDescription: String? { message }
 }
 
 public enum CLILocator {

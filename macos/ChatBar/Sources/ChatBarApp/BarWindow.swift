@@ -149,8 +149,12 @@ struct SettingsView: View {
                 Text(L10n.text("settings.leftCard")).tag(false)
             }
             .pickerStyle(.radioGroup)
-            TextField(L10n.text("settings.tipMinutes"), text: $minutes)
-            TextField(L10n.text("settings.tipCost"), text: $cost)
+            LabeledContent(L10n.text("settings.tipMinutes")) {
+                TextField(L10n.text("settings.tipMinutes"), text: $minutes).labelsHidden()
+            }
+            LabeledContent(L10n.text("settings.tipCost")) {
+                TextField(L10n.text("settings.tipCost"), text: $cost).labelsHidden()
+            }
             HStack {
                 Spacer()
                 Button(L10n.text("settings.save")) {

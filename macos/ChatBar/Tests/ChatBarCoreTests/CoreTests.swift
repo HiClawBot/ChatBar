@@ -161,7 +161,95 @@ final class CoreTests: XCTestCase {
         XCTAssertThrowsError(try JSONDocuments.next(Data(#"{"state":"ready","text":"legacy"}"#.utf8)))
     }
 
-    func testCLIProcessDoesNotDeadlockOnPipesOrStdin() throws {
+    func testRunnerReturnsCompleteJSONWithoutWaitingForInheritedOutput() throws {
+        let runner = ProcessCommandRunner(timeout: 1)
+        let payload = #"{"ready":true}"#
+        let cases = [
+            "printf '%s' '\(payload)'",
+            "printf '%s' '\(payload)'; /bin/sleep 2 & exit 0",
+            "printf '%s' '\(payload)'; exec 1>&- 2>&-; /bin/sleep 0.12; exit 0"
+        ]
+        for script in cases {
+            let start = ProcessInfo.processInfo.systemUptime
+            let result = try runner.run(executable: "/bin/bash", arguments: ["-c", script], environment: [:], standardInput: nil)
+            let elapsed = ProcessInfo.processInfo.systemUptime - start
+            XCTAssertEqual(result.code, 0)
+            XCTAssertEqual(result.stdout, payload)
+            XCTAssertLessThan(elapsed, 1.5)
+            print("W006 runner: code=\(result.code) time=\(String(format: "%.3f", elapsed))s stdout=\(result.stdout)")
+        }
+    }
+
+    func testRunnerKeepsConcurrentOutputsSeparate() {
+        let runner = ProcessCommandRunner(timeout: 2)
+        let lock = NSLock()
+        var results: [Int: CLIResult] = [:]
+        DispatchQueue.concurrentPerform(iterations: 3) { index in
+            let result = try? runner.run(executable: "/bin/echo", arguments: ["\(index)"], environment: [:], standardInput: nil)
+            lock.lock()
+            results[index] = result
+            lock.unlock()
+        }
+        for index in 0..<3 {
+            XCTAssertEqual(results[index]?.code, 0)
+            XCTAssertEqual(results[index]?.stdout, "\(index)\n")
+        }
+    }
+
+    func testRefreshReadsCurrentReplyThroughRealRunner() throws {
+        let files = FileManager.default
+        let fixture = files.temporaryDirectory.appendingPathComponent("chatbar-W006-\(UUID().uuidString)")
+        try files.createDirectory(at: fixture, withIntermediateDirectories: false)
+        defer { try? files.removeItem(at: fixture) }
+        let repo = fixture.appendingPathComponent("project space")
+        let handoff = fixture.appendingPathComponent("交接")
+        try files.createDirectory(at: repo, withIntermediateDirectories: false)
+        let root = (0..<5).reduce(URL(fileURLWithPath: #filePath)) { url, _ in url.deletingLastPathComponent() }
+        let runner = ProcessCommandRunner()
+        let bridge = CLIBridge(executable: root.appendingPathComponent("cli/chatbar").path,
+                               home: fixture.appendingPathComponent("config").path, runner: runner)
+        let name = "agents-bar"
+        let added = try bridge.run(.projectAdd(name: name, repo: repo.path, handoff: handoff.path, chat: "", templates: false))
+        XCTAssertEqual(added.code, 0, added.stderr)
+        try Data("4\n".utf8).write(to: handoff.appendingPathComponent("round"))
+        let reply = fixture.appendingPathComponent("reply.md")
+        try Data("test reply".utf8).write(to: reply)
+        let ingested = try bridge.run(.ingest(project: name, paths: [reply.path]))
+        XCTAssertEqual(ingested.code, 0, ingested.stderr)
+
+        let marker = Data("# existing helper\n".utf8)
+        let helpers = [
+            handoff.appendingPathComponent("打开收发两个窗口.command"),
+            handoff.appendingPathComponent("①发出_拖给ChatGPT/复制开场白.command")
+        ]
+        for helper in helpers { try marker.write(to: helper) }
+
+        let start = ProcessInfo.processInfo.systemUptime
+        let statusResult = try bridge.run(.status)
+        XCTAssertEqual(statusResult.code, 0, statusResult.stderr)
+        let document = try JSONDocuments.status(Data(statusResult.stdout.utf8))
+        let current = try XCTUnwrap(document.projects.first { $0.current })
+        XCTAssertEqual(current.name, name)
+        XCTAssertEqual(current.round, 4)
+        XCTAssertEqual(current.inboxState, "new")
+        XCTAssertFalse(document.autoExchange)
+        let step = try bridge.nextStep(project: current.name)
+        XCTAssertEqual(step.project, name)
+        XCTAssertEqual(step.round, 4)
+        XCTAssertEqual(step.step, .received)
+        XCTAssertEqual(step.titleShort, "新任务")
+        XCTAssertEqual(step.actionLabel, "收好了")
+        let elapsed = ProcessInfo.processInfo.systemUptime - start
+        XCTAssertLessThan(elapsed, 5)
+        for helper in helpers { XCTAssertEqual(try Data(contentsOf: helper), marker) }
+        let rawNext = try bridge.run(.next(project: current.name))
+        XCTAssertEqual(rawNext.code, 0)
+        print("W006 refresh: \(String(format: "%.3f", elapsed))s")
+        print("W006 status: \(statusResult.stdout.trimmingCharacters(in: .newlines))")
+        print("W006 next: \(rawNext.stdout.trimmingCharacters(in: .newlines))")
+    }
+
+    func testCLIProcessHandlesOutputStdinAndTimeout() throws {
         let runner = ProcessCommandRunner(timeout: 5)
         let echo = try runner.run(executable: "/bin/bash", arguments: ["-c", "printf 'out'; printf 'err' >&2"], environment: [:], standardInput: nil)
         XCTAssertEqual(echo.code, 0)
