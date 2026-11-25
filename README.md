@@ -1,5 +1,17 @@
 # ChatBar.org
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/R004_06_locked_neon.svg">
+    <img src="assets/brand/R004_06_locked_black.svg" alt="星聚沙发" width="160">
+  </picture>
+  <br>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/R004_06_wordmark_outlined.svg">
+    <img src="assets/brand/R004_06_wordmark_outlined_black.svg" alt="ChatBar.org" width="240">
+  </picture>
+</p>
+
 ChatBar：macOS 菜单栏小工具，在 ChatGPT 和本地编码助手（Codex 等）之间拖拽交接文件，不做任何网页自动化。
 
 ChatBar is a small macOS menu bar tool that shuttles files between ChatGPT and local coding agents (Codex and others) by drag and drop. It does not automate the web.
@@ -168,3 +180,5 @@ SwiftBar 每天后台检查一次公开发布。看到「有更新」时，点�
 2. 从「复制给 g 的话」开始。核对剪贴板后点「我已粘贴」，下一步才可在 Finder 选中文件。
 3. 点「我已拖入并发送」后，菜单进入「等 g」。将测试 ZIP 拖到 ChatBar 图标，菜单亮红点。点「收好了」确认可查看回复。
 4. 若回复含有代码，`chatbar apply` 后当前分支是 `chatbar/R00N`。
+
+© 2026 AiClipStudio

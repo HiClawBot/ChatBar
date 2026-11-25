@@ -97,8 +97,12 @@ cb_cmd_swiftbar_menu() {
     done
   fi
 
+  local template
+  template="$(cb_install_root)/assets/brand/menu-template.tiff"
   if [[ "$new" == 1 ]]; then
     printf '%s\n' '新任务 | sfimage=circle.fill sfcolor=#DC2626 dropdown=false'
+  elif [[ -r "$template" ]]; then
+    printf '%s | templateImage=%s dropdown=false\n' "$title" "$(base64 < "$template" | tr -d '\r\n')"
   else
     printf '%s | sfimage=%s dropdown=false\n' "$title" "$icon"
   fi
