@@ -1,0 +1,175 @@
+#!/bin/bash
+# ChatBar CLI — MIT License.
+# SAFETY: this tool never automates a planner chat (ChatGPT or otherwise).
+# It does not launch a browser, read cookies, call chat APIs, or script a chat UI.
+# osascript is used only for a local notification and for Finder window placement.
+# See docs/SAFETY.md and spec/handoff-v0.md.
+
+set -euo pipefail
+
+cb_self_dir() {
+  local source="${BASH_SOURCE[0]}"
+  local dir target
+  while [[ -L "$source" ]]; do
+    dir="$(cd -P "$(dirname "$source")" && pwd)"
+    target="$(readlink "$source")"
+    if [[ "$target" != /* ]]; then
+      source="${dir}/${target}"
+    else
+      source="$target"
+    fi
+  done
+  cd -P "$(dirname "$source")" && pwd
+}
+
+CB_BIN="$(cd -P "$(cb_self_dir)" && pwd)/chatbar"
+CB_LIB="$(cd -P "$(cb_self_dir)" && pwd)/lib"
+
+# shellcheck source=lib/common.sh
+source "${CB_LIB}/common.sh"
+# shellcheck source=lib/decode.sh
+source "${CB_LIB}/decode.sh"
+# shellcheck source=lib/secrets.sh
+source "${CB_LIB}/secrets.sh"
+# shellcheck source=lib/notify.sh
+source "${CB_LIB}/notify.sh"
+# shellcheck source=lib/folders.sh
+source "${CB_LIB}/folders.sh"
+# shellcheck source=lib/state.sh
+source "${CB_LIB}/state.sh"
+# shellcheck source=lib/log.sh
+source "${CB_LIB}/log.sh"
+# shellcheck source=lib/projects.sh
+source "${CB_LIB}/projects.sh"
+# shellcheck source=lib/archive.sh
+source "${CB_LIB}/archive.sh"
+# shellcheck source=lib/pack.sh
+source "${CB_LIB}/pack.sh"
+# shellcheck source=lib/opener.sh
+source "${CB_LIB}/opener.sh"
+# shellcheck source=lib/ingest.sh
+source "${CB_LIB}/ingest.sh"
+# shellcheck source=lib/patches.sh
+source "${CB_LIB}/patches.sh"
+# shellcheck source=lib/session.sh
+source "${CB_LIB}/session.sh"
+# shellcheck source=lib/next.sh
+source "${CB_LIB}/next.sh"
+# shellcheck source=lib/auto.sh
+source "${CB_LIB}/auto.sh"
+# shellcheck source=lib/menu.sh
+source "${CB_LIB}/menu.sh"
+# shellcheck source=lib/watch.sh
+source "${CB_LIB}/watch.sh"
+# shellcheck source=lib/update.sh
+source "${CB_LIB}/update.sh"
+
+cb_help() {
+  cat <<'EOF'
+ChatBar — 在规划对话和本地编码助手之间手工交接文件。
+ChatBar shuttles files between a planner chat and local coding agents.
+Sending in the planner chat is always your own drag. No web automation.
+
+用法 / usage:
+  chatbar project add --name NAME --repo PATH [--handoff PATH]
+                      [--opener TEMPLATE] [--chat-name NAME]
+                      [--outbox-name NAME] [--inbox-name NAME]
+                      [--archive-name NAME] [--log-name NAME]
+                      [--with-templates]
+  chatbar project list
+  chatbar project use NAME
+  chatbar project pick-folder          # macOS folder dialog; name is the folder name
+  chatbar pack [--project NAME | --repo PATH] [--full] [--quiet]
+  chatbar open [NAME]              # copy opener, open outbox (left) + inbox (right)
+  chatbar reveal [NAME]            # open the two folders, no clipboard change
+  chatbar next [NAME] [--json]      # the one action to do now
+  chatbar step advance|back NAME ROUND STEP
+  chatbar handoff-now [NAME]       # copy opener and select to_chatgpt_R00N.md
+  chatbar copy-opener [NAME]
+  chatbar ingest [--project NAME] FILE...
+  chatbar apply [NAME]             # git apply --3way on branch chatbar/R<NNN>; main stays put
+  chatbar done [--project NAME]
+  chatbar open-handoff [NAME]      # parent folder of the outbox and inbox
+  chatbar open-root [NAME]         # project workspace (workspace or repo)
+  chatbar open-downloads             # the local Downloads folder
+  chatbar open-home                  # ChatBar home (projects.yaml)
+  chatbar archive [NAME] [--topic TEXT] [--sync PATH]
+  chatbar compact [--older-than 90d] [--project NAME] [--sync PATH]
+  chatbar sync [--to PATH] [--project NAME]
+  chatbar status [--project NAME]
+  chatbar folders [--project NAME]
+  chatbar sweep [--auto]          # --auto runs only when 自动收发 is on
+  chatbar auto on|off|toggle|status [--project NAME]
+  chatbar update [--check|--rollback]
+  chatbar hook install [--repo PATH]
+  chatbar watch install|uninstall|run
+
+交接目录可以是任意路径（含空格、中文、外置盘）。
+The handoff root may be any path, including spaces, Chinese, or an external volume.
+默认 CHATBAR_HOME=~/handoff。Override with CHATBAR_HOME.
+EOF
+}
+
+cb_main() {
+  local cmd="${1:-help}"
+  if [[ $# -gt 0 ]]; then
+    shift
+  fi
+  case "$cmd" in
+    pack) cb_cmd_pack "$@" ;;
+    open) cb_cmd_open "$@" ;;
+    open-handoff) cb_cmd_open_handoff "$@" ;;
+    open-root) cb_cmd_open_root "$@" ;;
+    open-downloads) cb_cmd_open_downloads "$@" ;;
+    open-home) cb_cmd_open_home "$@" ;;
+    reveal) cb_cmd_reveal "$@" ;;
+    copy-opener) cb_cmd_copy_opener "$@" ;;
+    next) cb_cmd_next "$@" ;;
+    step) cb_cmd_step "$@" ;;
+    auto) cb_cmd_auto "$@" ;;
+    handoff-now) cb_cmd_handoff_now "$@" ;;
+    ingest) cb_cmd_ingest "$@" ;;
+    apply) cb_cmd_apply "$@" ;;
+    ingest-drop) cb_cmd_ingest_drop "$@" ;;
+    archive|close) cb_cmd_archive "$@" ;;
+    compact) cb_cmd_compact "$@" ;;
+    sync) cb_cmd_sync "$@" ;;
+    status) cb_cmd_status "$@" ;;
+    folders) cb_cmd_folders "$@" ;;
+    done) cb_cmd_done "$@" ;;
+    sweep) cb_cmd_sweep "$@" ;;
+    update) cb_cmd_update "$@" ;;
+    project)
+      local sub="${1:-}"
+      if [[ $# -gt 0 ]]; then
+        shift
+      fi
+      case "$sub" in
+        add) cb_cmd_project_add "$@" ;;
+        list) cb_cmd_project_list "$@" ;;
+        use) cb_cmd_project_use "$@" ;;
+        pick-folder) cb_cmd_project_pick_folder "$@" ;;
+        *) cb_die "usage: chatbar project add|list|use|pick-folder" ;;
+      esac
+      ;;
+    hook)
+      local hook_sub="${1:-install}"
+      if [[ $# -gt 0 ]]; then
+        shift
+      fi
+      case "$hook_sub" in
+        install) cb_cmd_hook_install "$@" ;;
+        *) cb_die "usage: chatbar hook install" ;;
+      esac
+      ;;
+    watch) cb_cmd_watch "$@" ;;
+    swiftbar-menu) cb_cmd_swiftbar_menu "$@" ;;
+    help|-h|--help) cb_help ;;
+    version|--version) printf 'chatbar %s\n' "$(cb_version)" ;;
+    *) cb_die "unknown command: ${cmd}. Try: chatbar help" ;;
+  esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  cb_main "$@"
+fi
