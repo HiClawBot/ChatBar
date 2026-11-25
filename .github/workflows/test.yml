@@ -15,3 +15,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run tests
         run: bash tests/run.sh
+
+  macos-app:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests
+        run: swift test --package-path macos/ChatBar
+      - name: Build unsigned app and launch smoke test
+        run: bash scripts/build-macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChatBar-macos-unsigned
+          path: dist/ChatBar-macos-unsigned.zip

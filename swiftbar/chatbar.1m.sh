@@ -1,6 +1,6 @@
 #!/bin/bash
 # <xbar.title>ChatBar</xbar.title>
-# <xbar.version>v0.1.1</xbar.version>
+# <xbar.version>v0.2.0</xbar.version>
 # <xbar.author>HiClawBot</xbar.author>
 # <xbar.author.github>HiClawBot</xbar.author.github>
 # <xbar.desc>Drag files between a planner chat and local coding agents. No web automation.</xbar.desc>

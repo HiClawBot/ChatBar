@@ -163,12 +163,31 @@ assert_file "$HANDOFF/①发出_拖给规划聊天/to_chatgpt_R001.md"
 pack_body="$(cat "$HANDOFF/①发出_拖给规划聊天/to_planner.md")"
 assert_contains "$pack_body" "round 1" "opener round"
 assert_contains "$pack_body" "planner" "opener role"
-assert_contains "$pack_body" "项目甲_R001_reply.md" "delivery filename"
+assert_contains "$pack_body" "项目甲_round1_reply.md" "delivery filename"
 assert_contains "$pack_body" "## Delivery format" "delivery section"
 assert_contains "$pack_body" "Base commit (main):" "pack names the base commit"
 assert_contains "$pack_body" "unified diff" "pack asks for a diff"
 tail -n 12 "$HANDOFF/①发出_拖给规划聊天/to_planner.md" | grep -q "inline chat text" || fail "delivery section not at end"
 assert_file "$HANDOFF/①发出_拖给规划聊天/给GPT的话.txt"
+assert_file "$HANDOFF/①发出_拖给规划聊天/复制开场白.command"
+# status, next, tip, and log run on app launch. They must not rewrite user scripts.
+user_mark='user-owned-command'
+printf '%s\n' "$user_mark" > "$HANDOFF/打开收发两个窗口.command"
+printf '%s\n' "$user_mark" > "$HANDOFF/①发出_拖给规划聊天/复制开场白.command"
+"$CHATBAR" status --json >/dev/null
+"$CHATBAR" next --json >/dev/null
+"$CHATBAR" tip >/dev/null
+"$CHATBAR" log >/dev/null
+assert_eq "$(cat "$HANDOFF/打开收发两个窗口.command")" "$user_mark" "status leaves the open command"
+assert_eq "$(cat "$HANDOFF/①发出_拖给规划聊天/复制开场白.command")" "$user_mark" "status leaves the copy command"
+rm -f "$HANDOFF/打开收发两个窗口.command" "$HANDOFF/①发出_拖给规划聊天/复制开场白.command"
+CHATBAR_NO_REWRITE=1 "$CHATBAR" status --json >/dev/null
+if [[ -e "$HANDOFF/打开收发两个窗口.command" || -e "$HANDOFF/①发出_拖给规划聊天/复制开场白.command" ]]; then
+  fail "CHATBAR_NO_REWRITE still wrote helper scripts"
+fi
+"$CHATBAR" status --json >/dev/null
+assert_file "$HANDOFF/打开收发两个窗口.command"
+assert_contains "$(cat "$HANDOFF/打开收发两个窗口.command")" "open --handoff" "missing command is created once"
 assert_file "$HANDOFF/①发出_拖给规划聊天/复制开场白.command"
 assert_contains "$pack_body" "main.py" "diff mentions source"
 assert_not_contains "$pack_body" "anothersecret999" "secret redacted"
@@ -187,7 +206,7 @@ assert_contains "$(cat "$logf")" '"spec_version":"0"' "jsonl spec"
 
 open_out="$("$CHATBAR" open)"
 assert_contains "$open_out" "opener:" "open copies opener"
-assert_contains "$open_out" "项目甲_R001_reply.md" "open opener asks for the reply file"
+assert_contains "$open_out" "项目甲_round1_reply.md" "open opener asks for the reply file"
 assert_contains "$open_out" "reveal:" "open reveals"
 assert_contains "$open_out" "layout:outbox-left,inbox-right" "side by side"
 assert_contains "$open_out" "①发出_拖给规划聊天/to_chatgpt_R001.md" "left is the round file"
@@ -326,7 +345,7 @@ pack2="$(cat "$HANDOFF2/①发出_拖给ChatGPT/to_planner.md")"
 assert_contains "$pack2" "Last round you suggested:" "round 2 recalls suggestion"
 assert_contains "$pack2" "先补测试" "suggestion text"
 assert_contains "$pack2" "This round we changed:" "round 2 changes"
-assert_contains "$pack2" "项目乙_R002_reply.md" "round 2 reply filename"
+assert_contains "$pack2" "项目乙_round2_reply.md" "round 2 reply filename"
 copied="$("$CHATBAR" copy-opener "项目乙")"
 assert_contains "$copied" "先补测试" "clipboard opener is dynamic"
 
@@ -422,6 +441,9 @@ fi
 # project switch
 "$CHATBAR" project use "项目乙" >/dev/null
 assert_eq "$(tr -d '\n' < "$CHATBAR_HOME/current")" "项目乙" "current switched"
+
+# shellcheck source=/dev/null
+source "$ROOT/tests/native.sh"
 
 # zip ingest end to end: unpack, write NEW.json, move the raw zip, do not unpack twice
 ZREPO="$TMP/zip-repo"
@@ -663,7 +685,7 @@ FIXTURE="$TMP/update-fixture"
 mkdir -p "$UPDATE_ROOT" "$FIXTURE/bin" "$FIXTURE/source/ChatBar-release"
 cp -R "$ROOT/cli" "$ROOT/swiftbar" "$ROOT/VERSION" "$UPDATE_ROOT/"
 cp -R "$ROOT/cli" "$ROOT/swiftbar" "$FIXTURE/source/ChatBar-release/"
-printf '0.1.2\n' > "$FIXTURE/source/ChatBar-release/VERSION"
+printf '0.2.1\n' > "$FIXTURE/source/ChatBar-release/VERSION"
 tar -czf "$FIXTURE/source.tar.gz" -C "$FIXTURE/source" ChatBar-release
 release_commit=0123456789abcdef0123456789abcdef01234567
 printf '%s %s\n' "$(cb_sha256 "$FIXTURE/source.tar.gz")" "$release_commit" > "$FIXTURE/checksum"
@@ -674,9 +696,9 @@ url="${!#}"
 printf '%s\n' "$url" >> "$CHATBAR_TEST_UPDATE_FIXTURE/requests"
 case "$url" in
   https://github.com/HiClawBot/ChatBar/releases/latest)
-    printf '%s' '200 https://github.com/HiClawBot/ChatBar/releases/tag/v0.1.2'
+    printf '%s' '200 https://github.com/HiClawBot/ChatBar/releases/tag/v0.2.1'
     ;;
-  https://github.com/HiClawBot/ChatBar/releases/download/v0.1.2/chatbar-source.sha256)
+  https://github.com/HiClawBot/ChatBar/releases/download/v0.2.1/chatbar-source.sha256)
     cat "$CHATBAR_TEST_UPDATE_FIXTURE/checksum"
     ;;
   https://codeload.github.com/HiClawBot/ChatBar/tar.gz/0123456789abcdef0123456789abcdef01234567)
@@ -700,7 +722,7 @@ printf 'handoff sentinel\n' > "$CHATBAR_HOME/sentinel"
 assert_eq "$(wc -l < "$FIXTURE/requests" | tr -d ' ')" "1" "background check runs once daily"
 assert_contains "$("$UCLI" swiftbar-menu)" '有更新 |' "background only makes the update available"
 assert_eq "$("$UCLI" version)" "chatbar $(cat "$ROOT/VERSION")" "check does not install"
-assert_contains "$("$UCLI" update --check)" "有更新 v0.1.2" "manual check bypasses the daily cache"
+assert_contains "$("$UCLI" update --check)" "有更新 v0.2.1" "manual check bypasses the daily cache"
 good_checksum="$(cat "$FIXTURE/checksum")"
 printf '%064d %s\n' 0 "$release_commit" > "$FIXTURE/checksum"
 if "$UCLI" update > "$FIXTURE/bad-update.log" 2>&1; then
@@ -718,7 +740,7 @@ assert_contains "$(cat "$FIXTURE/inside.log")" "安装目录内有交接目录" 
 rmdir "$UPDATE_ROOT/local-handoff"
 
 "$UCLI" update > "$FIXTURE/install.log"
-assert_eq "$("$UCLI" version)" "chatbar 0.1.2" "verified update switches the linked CLI"
+assert_eq "$("$UCLI" version)" "chatbar 0.2.1" "verified update switches the linked CLI"
 assert_not_contains "$("$UCLI" swiftbar-menu)" '有更新 |' "installed version clears availability"
 assert_contains "$(cat "$FIXTURE/install.log")" ".prev-" "old source is backed up"
 assert_contains "$("$UCLI" swiftbar-menu)" "-- 还原上一版" "rollback is under 更多"
@@ -731,8 +753,14 @@ export PATH="$saved_path" CHATBAR_HOME="$saved_home"
 unset CHATBAR_TEST_UPDATE_FIXTURE
 
 # safety: no chat UI automation
+safety_paths=()
+for safety_dir in cli swiftbar scripts macos hooks packaging; do
+  if [[ -d "$ROOT/$safety_dir" ]]; then
+    safety_paths+=("$ROOT/$safety_dir")
+  fi
+done
 if grep -RInE 'playwright|puppeteer|api\.openai\.com|browser-cookie|tell application "(Safari|Google Chrome|ChatGPT)"|System Events|keystroke' \
-  "$ROOT/cli" "$ROOT/swiftbar" "$ROOT/scripts" >/tmp/safety-hits 2>/dev/null; then
+  "${safety_paths[@]}" >/tmp/safety-hits 2>/dev/null; then
   fail "forbidden automation strings: $(cat /tmp/safety-hits)"
 fi
 

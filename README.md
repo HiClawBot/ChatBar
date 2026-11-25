@@ -16,6 +16,24 @@ ChatBar：macOS 菜单栏小工具，在 ChatGPT 和本地编码助手（Codex �
 
 ChatBar is a small macOS menu bar tool that shuttles files between ChatGPT and local coding agents (Codex and others) by drag and drop. It does not automate the web.
 
+## Iron Rule / 铁律
+
+ChatBar 不会点击、脚本化或自动化 ChatGPT 的网页或桌面应用。没有辅助功能、没有注入按键、没有浏览器扩展、不读 Cookie 或令牌、不用你的账号调接口。允许的只有本地文件、剪贴板和 Finder。细则见 [SECURITY.md](SECURITY.md)。
+
+ChatBar never clicks, scripts, or automates the ChatGPT web or desktop app. No accessibility hooks, no injected input, no browser extension, no cookies or tokens, no API on your account. Local files, the pasteboard, and Finder are the whole surface. See [SECURITY.md](SECURITY.md).
+
+## 自动收发 / Auto exchange
+
+默认**关闭**。第一次打开不会自动收下载、也不会自动放到剪贴板。你在卡片上打开「自动收发」之后，还要给具体项目打开「本项目」。
+
+开场白要求对方把下载命名为 `<项目标识>_round<轮次>_reply.zip`。原生菜单在人工确认发送后收取对应轮次的 ZIP，需同时打开总开关和项目开关。手动导入也支持 Markdown 等文件。
+
+Auto exchange is **off** until you opt in, and a project also has to be opted in. The opener asks for `<slug>_round<N>_reply.md` or `.zip`. Anything ambiguous stays where it is and the card asks you to pick a project. The same project, round, and sha256 is ingested once.
+
+左键默认打开吧台窗口。项目是包厢，带状态灯和轮次。小卡片（当前交接动作和开场白）在右键，也停在吧台窗口一侧。设置里可以改左键打开哪一个。小费罐用「省掉的动作 × 分钟」和「每一轮少花的额度」估算，假设可以改。记录、`NEW.json` 和 `claims.jsonl` 带本机名字，这一版仍只在本机。
+
+Left-click opens the bar window. Right-click opens the compact card, which is also docked inside the bar. Settings can swap that. The tip jar estimates saved minutes and quota from editable assumptions. Logs, `NEW.json`, and `claims.jsonl` store this machine's name. This version stays on one computer.
+
 ## 为什么做它 / Why
 
 很多人同时付费使用 ChatGPT 和 Codex。ChatGPT 擅长规划和审阅，但读不到本地代码；Codex 的额度更贵；每一轮手工复制、打包、解压都很烦。用脚本去操作 ChatGPT 网页有违反服务条款、导致封号的风险。
@@ -42,9 +60,9 @@ Many people pay for both ChatGPT and Codex. ChatGPT is strong at planning and re
 
 目标是 Apple silicon、macOS 12 及以上。MVP 是脚本，不需要 Rosetta，也没有编译好的二进制。
 
-**这个 MVP 的菜单栏跑在 SwiftBar 上。** 安装脚本会把 SwiftBar 装在 ChatBar 旁边，当作菜单栏宿主。ChatBar 自己还没有菜单栏程序；那是下一步要做的，就是为了去掉 SwiftBar。见 [ROADMAP.md](ROADMAP.md)。
+下面是 SwiftBar 版的安装步骤。原生菜单栏版见 [macOS 说明](macos/README.md)。
 
-**This MVP's menu bar runs on SwiftBar.** The installer puts SwiftBar next to ChatBar and uses it as the menu-bar host. ChatBar does not have its own menu-bar app yet. Removing that dependency is the next priority. See [ROADMAP.md](ROADMAP.md).
+The following installer uses SwiftBar as the menu-bar host. See the [macOS guide](macos/README.md) for the native app.
 
 ```bash
 git clone https://github.com/HiClawBot/ChatBar.git

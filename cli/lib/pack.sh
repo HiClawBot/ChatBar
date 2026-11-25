@@ -292,6 +292,9 @@ cb_cmd_pack() {
 
   cb_state_set "$CB_HANDOFF" "pack-state" "ready"
   cb_state_set "$CB_HANDOFF" "pack-round" "$round"
+  cb_state_set "$CB_HANDOFF" "pack-at" "$(cb_now_iso)"
+  cb_state_set "$CB_HANDOFF" "presented-at" ""
+  cb_clear_error "$CB_HANDOFF"
 
   local bytes files_json
   bytes="$(cb_bytes "$stable")"

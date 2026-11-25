@@ -1,13 +1,15 @@
 # Local auto-exchange only: opted-in Git hooks pack, and sweeps pick up named replies.
 
 cb_auto_enabled() {
-  local path
-  if [[ -n "${1:-}" ]]; then
-    path="$1"
+  local path="${1:-}" idx
+  if [[ -z "$path" || "$path" == "$(cb_home)" ]]; then
+    cb_auto_exchange_enabled
+  elif [[ -f "$path/auto" ]]; then
+    [[ "$(cb_state_get "$path" auto off)" == on ]]
   else
-    path="$(cb_home)"
+    idx="$(cb_project_find_by_handoff "$path")" || return 1
+    cb_flag_on "${CB_P_AUTO[$idx]:-}"
   fi
-  [[ "$(cb_state_get "$path" auto off)" == on ]]
 }
 
 cb_auto_label() {
@@ -62,11 +64,8 @@ cb_cmd_auto() (
 )
 
 cb_sweep_download() (
-  local name="$1" file round i hits=0
+  local name="$1" file round i digest hits=0
   cb_resolve_project_arg "$name"
-  cb_auto_enabled && cb_auto_enabled "$CB_HANDOFF" || exit 0
-  cb_lock "$CB_HANDOFF" || exit 1
-  trap 'cb_unlock "$CB_HANDOFF"' EXIT
   cb_auto_enabled && cb_auto_enabled "$CB_HANDOFF" || exit 0
   cb_next_fields transfer
   [[ "$CB_NEXT_STEP" == wait ]] || exit 0
@@ -83,8 +82,17 @@ cb_sweep_download() (
     fi
   done
   [[ "$hits" == 1 ]] || exit 0
-  cb_ledger_has "$CB_HANDOFF" "$(cb_sha256 "$file")" && exit 0
+  digest="$(cb_sha256 "$file")"
+  cb_ledger_has "$CB_HANDOFF" "$digest" && exit 0
   cb_is_zip "$file" && unzip -tq "$file" >/dev/null 2>&1 || exit 0
+
+  cb_lock "$CB_HANDOFF" || exit 1
+  trap 'cb_unlock "$CB_HANDOFF"' EXIT
+  cb_auto_enabled && cb_auto_enabled "$CB_HANDOFF" || exit 0
+  cb_next_fields transfer
+  [[ "$CB_NEXT_STEP" == wait && "$CB_NEXT_ROUND" == "$round" && "$CB_NEXT_FILE" == "$file" ]] || exit 0
+  [[ -f "$file" && ! -L "$file" && "$(cb_sha256 "$file")" == "$digest" ]] || exit 0
+  cb_ledger_has "$CB_HANDOFF" "$digest" && exit 0
 
   # The existing importer takes the same lock again. Let this subshell keep
   # its outer lock cleanup even if the importer changes the EXIT trap.

@@ -23,6 +23,7 @@ Agent-agnostic layout. Display folder names are local config; roles are fixed.
   "status": "new",
   "type": "reply",
   "base_commit": "<git sha or none>",
+  "machine": "<hostname>",
   "patches": [],
   "files": []
 }
@@ -38,7 +39,7 @@ Outbox and inbox keep only the current round. A finished round moves to:
 
 `archive/YYYY-MM/R001_YYYY-MM-DD_HHMM_topic/`
 
-The log role folder holds `轮次总表.md` and `events.jsonl` (`spec_version`, timestamp, project, round, direction, files, bytes, approx_tokens).
+The log role folder holds `轮次总表.md`, `events.jsonl` (`spec_version`, timestamp, project, round, direction, machine, files, bytes, approx_tokens), and `claims.jsonl` (`spec_version`, timestamp, project, round, machine, action). `machine` is this computer's hostname. v0 stays on one machine; the field is there for a later local network.
 
 ## Apply
 
